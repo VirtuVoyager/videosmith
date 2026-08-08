@@ -1,1 +1,28 @@
-# SPEC-GAP: base negative_terms safety list to be authored in WP2 per §2.2
+# Base negative_terms merged into every StyleContract.negative_terms by
+# agents/creative_director.py -- code merges this in after the LLM responds,
+# it is never left to the LLM to remember (§2.2).
+base_negative_terms:
+  - weapons
+  - guns
+  - knives
+  - blood
+  - gore
+  - violence
+  - death
+  - corpses
+  - nudity
+  - sexual content
+  - drugs
+  - alcohol
+  - smoking
+  - self-harm
+  - suicide
+  - hate symbols
+  - slurs
+  - strangers offering candy or rides
+  - kidnapping
+  - horror imagery
+  - jump scares
+  - realistic human injury
+  - discrimination
+  - bullying

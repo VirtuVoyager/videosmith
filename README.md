@@ -9,7 +9,7 @@ approval before anything goes live.
 | WP | Status | Notes |
 |---|---|---|
 | WP1 | done | Contracts, state, orchestrator skeleton, storage. Graph runs end to end with stub adapters; real LLM/image/video/music/tts/publish/notify adapters land in WP2-WP7 |
-| WP2 | todo | Creative Director + Director + character refs |
+| WP2 | done | Creative Director + Director + character refs. Multi-provider LLM adapter (anthropic, groq) plus image_replicate.py; CLI still requires `--stubs` for a full run until WP3-7 land |
 | WP3 | todo | Videographer + Replicate video adapter |
 | WP4 | todo | Music Director |
 | WP5 | todo | Editor (ffmpeg, deterministic) |
@@ -38,8 +38,13 @@ the spec here._
 
 | Var | Required | Default | Description |
 |---|---|---|---|
-| `SS_LLM_PROVIDER` | no | `anthropic` | `anthropic` \| `azure_openai` |
+| `SS_LLM_PROVIDER` | no | `anthropic` | `anthropic` \| `groq` \| `azure_openai` |
 | `SS_ANTHROPIC_API_KEY` | yes (if anthropic) | — | Anthropic API key |
+| `SS_ANTHROPIC_MODEL_STANDARD` | no | `claude-sonnet-4-6` | Standard-tier Anthropic model id |
+| `SS_ANTHROPIC_MODEL_VISION` | no | `claude-sonnet-4-6` | Vision-tier Anthropic model id |
+| `SS_GROQ_API_KEY` | yes (if groq) | — | Groq API key |
+| `SS_GROQ_MODEL_STANDARD` | no | `llama-3.3-70b-versatile` | Standard-tier Groq model id |
+| `SS_GROQ_MODEL_VISION` | no | `llama-3.2-90b-vision-preview` | Vision-tier Groq model id |
 | `SS_AZURE_OPENAI_ENDPOINT` | yes (if azure) | — | Azure OpenAI resource endpoint |
 | `SS_AZURE_OPENAI_API_KEY` | yes (if azure) | — | Azure OpenAI API key |
 | `SS_AZURE_OPENAI_DEPLOYMENT_STANDARD` | yes (if azure) | — | Standard-tier deployment name |
@@ -51,8 +56,10 @@ the spec here._
 | `SS_IMAGE_MODEL` | no | `black-forest-labs/flux-schnell` | Character ref image model id |
 | `SS_MUSIC_MODEL` | no | `lucataco/ace-step` | Music generation model id |
 | `SS_TTS_VOICE` | no | `af_bella` | Kokoro TTS voice id |
+| `SS_TTS_VOICE_HI` | no | — | TTS voice id used when `StyleContract.language` is `hi`/`hi-en` |
 | `SS_STORAGE_BACKEND` | no | `local` | `local` \| `s3` \| `azure_blob` |
 | `SS_OUTPUT_DIR` | no | `./out` | Local storage root |
+| `SS_CONFIGS_DIR` | no | `./configs` | Repo-root configs/ (style presets, safety rules, rubrics) |
 | `SS_S3_BUCKET` | yes (if s3) | — | S3 bucket name |
 | `SS_AWS_REGION` | no | `eu-central-1` | AWS region |
 | `SS_AZURE_BLOB_ACCOUNT_URL` | yes (if azure_blob) | — | Azure Blob account URL |
