@@ -8,7 +8,7 @@ approval before anything goes live.
 
 | WP | Status | Notes |
 |---|---|---|
-| WP1 | todo | Contracts, state, orchestrator skeleton, storage |
+| WP1 | done | Contracts, state, orchestrator skeleton, storage. Graph runs end to end with stub adapters; real LLM/image/video/music/tts/publish/notify adapters land in WP2-WP7 |
 | WP2 | todo | Creative Director + Director + character refs |
 | WP3 | todo | Videographer + Replicate video adapter |
 | WP4 | todo | Music Director |

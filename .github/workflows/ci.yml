@@ -18,8 +18,7 @@ jobs:
       - run: uv run ruff check packages apps tests
       - run: uv run ruff format --check packages apps tests
       - run: uv run mypy packages/storysmith-core
-      # SPEC-GAP: ffmpeg install + readme_check.py + prompt-eval-guard steps from
-      # HANDOFF_SPEC.md §13.1 are added once WP5 (ffmpeg editor) and WP2
-      # (prompts/ dir populated) land — no ffmpeg-dependent code or prompt
-      # files exist yet, so those checks have nothing to verify.
-      - run: uv run pytest tests/unit -m "not slow"
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      # SPEC-GAP: readme_check.py + prompt-eval-guard steps from §13.1 land
+      # once WP2 populates prompts/ and a real README Quickstart exists to check.
+      - run: uv run pytest tests/unit -m "not slow" --cov --cov-fail-under=80

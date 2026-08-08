@@ -48,3 +48,6 @@ markers = [
     "slow: slow-running tests excluded from default CI run",
 ]
 addopts = "--ignore=tests/llm"
+
+[tool.coverage.run]
+source = ["packages/storysmith-core/src/storysmith"]
