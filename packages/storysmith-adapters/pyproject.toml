@@ -1,0 +1,22 @@
+[project]
+name = "storysmith-adapters"
+version = "0.1.0"
+requires-python = ">=3.12"
+description = "Concrete implementations of storysmith-core ports: Anthropic LLM, Replicate video/image/music, Kokoro TTS, S3/local storage, YouTube publish, Telegram notify, deterministic stubs."
+dependencies = [
+    "storysmith-core",
+    "httpx>=0.27",
+    "aioboto3>=13",
+    "google-api-python-client>=2.147",
+    "faster-whisper>=1.0",
+]
+
+[tool.uv.sources]
+storysmith-core = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/storysmith_adapters"]

@@ -1,0 +1,50 @@
+[project]
+name = "storysmith-workspace"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.uv.workspace]
+members = [
+    "packages/storysmith-core",
+    "packages/storysmith-adapters",
+    "apps/worker",
+    "apps/api",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=5",
+    "ruff>=0.7",
+    "mypy>=1.13",
+    "respx>=0.21",
+    "debugpy>=1.8",
+    "deepeval",
+]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+markers = [
+    "wp1: WP1 contracts/state/orchestrator skeleton",
+    "wp2: WP2 creative director + director + char refs",
+    "wp3: WP3 videographer + replicate video adapter",
+    "wp4: WP4 music director",
+    "wp5: WP5 editor",
+    "wp6: WP6 critic/QA",
+    "wp7: WP7 review gate, publisher, API, UI",
+    "wp8: WP8 observability + cost ledger + ops",
+    "slow: slow-running tests excluded from default CI run",
+]
+addopts = "--ignore=tests/llm"

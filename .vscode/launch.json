@@ -1,0 +1,63 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Pipeline: run with stubs",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "worker.main",
+      "args": ["run", "--brief", "counting to five with ducks", "--mode", "rhyme", "--stubs"],
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "justMyCode": false,
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Pipeline: run LIVE (spends money)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "worker.main",
+      "args": ["run", "--brief", "counting to five with ducks", "--mode", "rhyme"],
+      "envFile": "${workspaceFolder}/.env",
+      "justMyCode": false
+    },
+    {
+      "name": "Pipeline: resume project",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "worker.main",
+      "args": ["run", "--resume", "${input:projectId}", "--stubs"],
+      "envFile": "${workspaceFolder}/.env"
+    },
+    {
+      "name": "API: FastAPI dev",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": ["api.main:app", "--reload", "--port", "8000"],
+      "envFile": "${workspaceFolder}/.env",
+      "justMyCode": false
+    },
+    {
+      "name": "Pytest: current file",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["${file}", "-x", "-vv", "--no-cov"],
+      "envFile": "${workspaceFolder}/.env.test",
+      "justMyCode": false
+    },
+    {
+      "name": "Attach: worker in container (5678)",
+      "type": "debugpy",
+      "request": "attach",
+      "connect": { "host": "localhost", "port": 5678 },
+      "pathMappings": [
+        { "localRoot": "${workspaceFolder}", "remoteRoot": "/app" }
+      ]
+    }
+  ],
+  "inputs": [
+    { "id": "projectId", "type": "promptString", "description": "Project ID to resume" }
+  ]
+}

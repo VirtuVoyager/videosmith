@@ -216,3 +216,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# StorySmith project-specific
+.env.test
+out/
+secrets/*.json
+node_modules/
+apps/ui/.next/
+
