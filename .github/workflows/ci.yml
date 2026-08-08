@@ -1,0 +1,25 @@
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with: { enable-cache: true }
+      - run: uv sync --all-packages --dev
+      - run: uv run ruff check packages apps tests
+      - run: uv run ruff format --check packages apps tests
+      - run: uv run mypy packages/storysmith-core
+      # SPEC-GAP: ffmpeg install + readme_check.py + prompt-eval-guard steps from
+      # HANDOFF_SPEC.md §13.1 are added once WP5 (ffmpeg editor) and WP2
+      # (prompts/ dir populated) land — no ffmpeg-dependent code or prompt
+      # files exist yet, so those checks have nothing to verify.
+      - run: uv run pytest tests/unit -m "not slow"
