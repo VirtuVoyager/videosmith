@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     # --- Budget & runtime ---
     budget_cap_usd: float = 12.0
     debug: bool = False  # SS_DEBUG=1 => debugpy wait-for-client in container
+    skip_ffmpeg: bool = False  # SS_SKIP_FFMPEG=1 => skip ffmpeg-dependent tests (§5)
 
     # --- Review & publish ---
     telegram_bot_token: str = ""

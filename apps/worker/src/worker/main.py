@@ -63,6 +63,14 @@ def _select_tts(settings: Settings) -> Any:
     return KokoroTTS(settings)
 
 
+def _select_transcribe(settings: Settings) -> Any:
+    # No settings needed -- faster-whisper runs locally on CPU, no API key.
+    del settings
+    from storysmith_adapters.transcribe_whisper import WhisperTranscribe
+
+    return WhisperTranscribe()
+
+
 @app.command()
 def run(
     brief: str = typer.Option(
@@ -83,17 +91,19 @@ def run(
     else:
         # Fail fast on whichever piece is misconfigured/missing before
         # touching anything else -- llm/image_gen/storage (WP2), video_gen
-        # (WP3), and music_gen/tts (WP4) are real; transcribe/publish/notify
-        # land in WP5-7, so a full non-stub run still isn't possible yet.
+        # (WP3), music_gen/tts (WP4), and transcribe (WP5) are real;
+        # publish/notify land in WP6-7, so a full non-stub run still isn't
+        # possible yet.
         _select_llm_adapter(settings)
         _select_storage(settings)
         _select_video_gen(settings)
         _select_music_gen(settings)
         _select_tts(settings)
+        _select_transcribe(settings)
         raise NotImplementedError(
-            "transcribe/publish/notify adapters land in WP5-7. LLM (anthropic/groq), "
-            "image_gen, video_gen, music_gen, and tts (replicate/kokoro) are ready, but a "
-            "full non-stub run isn't possible yet -- pass --stubs for now."
+            "publish/notify adapters land in WP6-7. LLM (anthropic/groq), image_gen, "
+            "video_gen, music_gen, tts, and transcribe (replicate/kokoro/whisper) are "
+            "ready, but a full non-stub run isn't possible yet -- pass --stubs for now."
         )
 
     project = asyncio.run(pipeline.run(brief=brief, mode=mode, project_id=resume))
