@@ -12,7 +12,7 @@ approval before anything goes live.
 | WP2 | done | Creative Director + Director + character refs. Multi-provider LLM adapter (anthropic, groq) plus image_replicate.py; CLI still requires `--stubs` for a full run until WP3-7 land |
 | WP3 | done | Videographer + Replicate video adapter (i2v/t2v selection, idempotency hashing, semaphore-bounded concurrency). CLI still requires `--stubs` for a full run until WP4-7 land |
 | WP4 | done | Music Director: ACE-Step (rhyme) + MusicGen (topical instrumental) + Kokoro TTS, all sharing a new `_replicate_base.py` poller (image/video adapters refactored onto it too). CLI still requires `--stubs` for a full run until WP5-7 land |
-| WP5 | todo | Editor (ffmpeg, deterministic) |
+| WP5 | done | Editor: real ffmpeg pipeline (normalize, crossfade/cut concat, audio mix+duck+loudnorm, faster-whisper transcribe, ASS caption burn-in, Pillow thumbnail overlay). Requires an ffmpeg build with libass (`ffmpeg-full` on Homebrew; Ubuntu's apt package already includes it). CLI still requires `--stubs` for a full run until WP6-7 land |
 | WP6 | todo | Critic / QA |
 | WP7 | todo | Review gate, Publisher, API, UI |
 | WP8 | todo | Observability + cost ledger + ops |
@@ -27,6 +27,14 @@ uv run storysmith run --brief "counting ducks" --mode rhyme --stubs
 
 First real run (no `--stubs`) spends money against the configured LLM, image, video, and
 music providers — see `## Cost` before running live.
+
+The Editor (WP5) needs an ffmpeg build with `libass` for caption burn-in. Ubuntu's
+`apt-get install ffmpeg` already includes it; on macOS Homebrew's default `ffmpeg`
+formula does not -- install `ffmpeg-full` instead:
+
+```bash
+brew uninstall ffmpeg --ignore-dependencies && brew install ffmpeg-full
+```
 
 ## Architecture
 
@@ -69,6 +77,7 @@ the spec here._
 | `SS_DB_URL` | no | empty (MemorySaver) | Postgres URL for checkpointing |
 | `SS_BUDGET_CAP_USD` | no | `12.0` | Per-project budget cap |
 | `SS_DEBUG` | no | `0` | `1` waits for debugpy client in container |
+| `SS_SKIP_FFMPEG` | no | `0` | `1` skips ffmpeg-dependent tests (§5) |
 | `SS_TELEGRAM_BOT_TOKEN` | yes (for review gate) | — | Telegram bot token |
 | `SS_TELEGRAM_CHAT_ID` | yes (for review gate) | — | Telegram chat id |
 | `SS_API_BEARER_TOKEN` | yes | — | Static bearer token for the FastAPI console |
