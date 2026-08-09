@@ -334,7 +334,10 @@ def _render_thumbnail(frame_path: Path, title: str, output_path: Path) -> None:
 
 
 def _run_ffmpeg(args: list[str]) -> None:
-    subprocess.run(args, check=True, capture_output=True)  # noqa: S603
+    result = subprocess.run(args, capture_output=True)  # noqa: S603
+    if result.returncode != 0:
+        stderr = result.stderr.decode(errors="replace")[-4000:]
+        raise RuntimeError(f"ffmpeg failed (exit {result.returncode}): {' '.join(args)}\n{stderr}")
 
 
 def _probe_duration(path: Path) -> float:
