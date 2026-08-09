@@ -31,7 +31,9 @@ class Settings(BaseSettings):
     video_model_i2v: str = "wan-video/wan-2.2-i2v-fast"
     video_model_t2v: str = "wan-video/wan-2.2-t2v-fast"
     image_model: str = "black-forest-labs/flux-schnell"
-    music_model: str = "lucataco/ace-step"
+    music_model: str = "lucataco/ace-step"  # rhyme mode: lyrics-driven full song
+    music_model_instrumental: str = "meta/musicgen"  # topical mode: instrumental bed
+    tts_model: str = "jaaari/kokoro-82m"  # Kokoro TTS on Replicate, for topical narration
     tts_voice: str = "af_bella"
     tts_voice_hi: str = ""
 

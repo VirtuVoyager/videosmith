@@ -28,7 +28,7 @@ def settings_video() -> Settings:
 
 @pytest.fixture(autouse=True)
 def _no_real_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("storysmith_adapters.video_replicate.asyncio.sleep", _instant_sleep)
+    monkeypatch.setattr("storysmith_adapters._replicate_base.asyncio.sleep", _instant_sleep)
     monkeypatch.setattr("storysmith.util.retry.asyncio.sleep", _instant_sleep)
 
 
