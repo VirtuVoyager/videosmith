@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import subprocess
 import tempfile
 from pathlib import Path
@@ -39,6 +40,28 @@ def _ensure_ffmpeg_asset(path: Path, *lavfi_args: str) -> bytes:
     return path.read_bytes()
 
 
+def _read_comment_tag(audio: bytes) -> str:
+    with tempfile.NamedTemporaryFile(suffix=".mp3") as tmp:
+        tmp.write(audio)
+        tmp.flush()
+        result = subprocess.run(  # noqa: S603
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format_tags=comment",
+                "-of",
+                "default=nw=1:nk=1",
+                tmp.name,
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    return result.stdout.strip()
+
+
 def _stub_video_bytes() -> bytes:
     return _ensure_ffmpeg_asset(
         _STUB_VIDEO_PATH,
@@ -64,6 +87,30 @@ def _stub_audio_bytes() -> bytes:
         "anullsrc=r=24000:cl=mono",
         "-t",
         "1",
+        "-q:a",
+        "9",
+    )
+
+
+def _stub_audio_bytes_for_text(text: str) -> bytes:
+    """A real, valid 1s mp3 -- but with `text` embedded in its comment tag so
+    StubTranscribe can read it back verbatim instead of returning fixed
+    filler words. Without this, the Critic's WER check (§6) always fails
+    against stub audio, since none of the stub generators actually encode
+    real speech -- there'd be no way to exercise the pipeline's audio-QA
+    happy path with stubs at all otherwise."""
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+    path = _TMP_DIR / f"stub_audio_{digest}.mp3"
+    return _ensure_ffmpeg_asset(
+        path,
+        "-f",
+        "lavfi",
+        "-i",
+        "anullsrc=r=24000:cl=mono",
+        "-t",
+        "1",
+        "-metadata",
+        f"comment={text}",
         "-q:a",
         "9",
     )
@@ -172,21 +219,26 @@ class StubMusicGen:
         description: str,
         duration_s: float,
     ) -> tuple[bytes, float]:
+        # Only the rhyme-mode master gets transcribed/WER-checked (§6); the
+        # topical bed track never is, so it can stay generic.
+        if mode == Mode.RHYME and lyrics:
+            return _stub_audio_bytes_for_text(lyrics), STUB_COST_USD
         return _stub_audio_bytes(), STUB_COST_USD
 
 
 class StubTTS:
     async def speak(self, *, text: str, voice: str) -> tuple[bytes, float]:
-        return _stub_audio_bytes(), STUB_COST_USD
+        return _stub_audio_bytes_for_text(text), STUB_COST_USD
 
 
 class StubTranscribe:
     async def transcribe(self, *, audio: bytes) -> tuple[list[dict[str, str | float]], float]:
-        words = [
-            {"word": "one", "start": 0.0, "end": 0.3},
-            {"word": "two", "start": 0.3, "end": 0.6},
-            {"word": "three", "start": 0.6, "end": 1.0},
-        ]
+        text = _read_comment_tag(audio)
+        words = []
+        start = 0.0
+        for word in text.split():
+            words.append({"word": word, "start": start, "end": start + 0.3})
+            start += 0.3
         return words, STUB_COST_USD
 
 

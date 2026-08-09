@@ -13,7 +13,7 @@ approval before anything goes live.
 | WP3 | done | Videographer + Replicate video adapter (i2v/t2v selection, idempotency hashing, semaphore-bounded concurrency). CLI still requires `--stubs` for a full run until WP4-7 land |
 | WP4 | done | Music Director: ACE-Step (rhyme) + MusicGen (topical instrumental) + Kokoro TTS, all sharing a new `_replicate_base.py` poller (image/video adapters refactored onto it too). CLI still requires `--stubs` for a full run until WP5-7 land |
 | WP5 | done | Editor: real ffmpeg pipeline (normalize, crossfade/cut concat, audio mix+duck+loudnorm, faster-whisper transcribe, ASS caption burn-in, Pillow thumbnail overlay). Requires an ffmpeg build with libass (`ffmpeg-full` on Homebrew; Ubuntu's apt package already includes it). CLI still requires `--stubs` for a full run until WP6-7 land |
-| WP6 | todo | Critic / QA |
+| WP6 | done | Critic / QA: rubric-driven vision LLM scoring, keyframe extraction, safety-forces-human-review, retry ceilings (3 scene / 1 audio), audio WER check. Critic routing now fans out independently to `videographer` vs `music_director` depending on which failed, instead of always regenerating scenes for an audio-only issue |
 | WP7 | todo | Review gate, Publisher, API, UI |
 | WP8 | todo | Observability + cost ledger + ops |
 

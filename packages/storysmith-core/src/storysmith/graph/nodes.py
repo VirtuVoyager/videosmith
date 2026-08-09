@@ -11,7 +11,14 @@ from storysmith.agents import editor as editor_agent
 from storysmith.agents import music_director as music_director_agent
 from storysmith.agents import publisher as publisher_agent
 from storysmith.agents import videographer as videographer_agent
-from storysmith.models import AssetKind, AssetRef, CostEntry, ProjectStatus, VideoProject
+from storysmith.models import (
+    AssetKind,
+    AssetRef,
+    CostEntry,
+    ProjectStatus,
+    QAVerdict,
+    VideoProject,
+)
 from storysmith.settings import Settings
 from storysmith.util.hashing import sha256_bytes
 
@@ -105,9 +112,17 @@ async def review_gate(
     state: VideoProject, *, ports: PortBundle, settings: Settings
 ) -> dict[str, Any]:
     # SPEC-GAP: real Telegram approve/reject deep-link message body (§7) is
-    # WP7 scope; this just flags REVIEW and sends a bare notification so the
+    # WP7 scope; this just flags REVIEW and sends a notification so the
     # graph has somewhere to interrupt (interrupt_before=["publisher"]).
-    await ports.notify.send(text=f"Project {state.project_id} ready for review", link=None)
+    escalations = [r for r in state.qa_reports if r.verdict == QAVerdict.HUMAN_REVIEW]
+    if escalations:
+        flagged = ", ".join(
+            "audio" if r.scene_index is None else f"scene {r.scene_index}" for r in escalations
+        )
+        text = f"Project {state.project_id} needs human review -- flagged: {flagged}"
+    else:
+        text = f"Project {state.project_id} passed QA, ready for review"
+    await ports.notify.send(text=text, link=None)
     return {"status": ProjectStatus.REVIEW}
 
 

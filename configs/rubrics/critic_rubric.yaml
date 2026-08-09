@@ -1,1 +1,56 @@
-# SPEC-GAP: critic rubric criteria to be authored in WP6 per §6
+# Critic rubric (§6). Weights across always-applicable criteria sum to 1.0;
+# lesson_clarity only applies when the project's theme carries a `lesson`
+# (civic/hygiene_safety families in configs/themes.yaml) and is folded into
+# the weighted-average denominator when it is.
+criteria:
+  - name: style_adherence
+    description: >
+      The scene's art style, palette, and character appearance match the
+      StyleContract -- same line weight, coloring, and character designs as
+      the reference image, not a different visual style.
+    weight: 0.20
+    min_score: 0.6
+
+  - name: character_consistency
+    description: >
+      Characters look like the same characters across keyframes within this
+      scene: consistent proportions, colors, and distinguishing features, no
+      morphing or identity drift.
+    weight: 0.20
+    min_score: 0.6
+
+  - name: visual_artifacts
+    description: >
+      No generation artifacts: no warped limbs, flickering, garbled text,
+      duplicated body parts, or nonsensical background elements.
+    weight: 0.20
+    min_score: 0.5
+
+  - name: kid_appeal
+    description: >
+      Bright, engaging, readable composition a young child would enjoy
+      watching -- not static, cluttered, or visually confusing.
+    weight: 0.15
+    min_score: 0.5
+
+  - name: safety
+    description: >
+      Nothing frightening, violent, or otherwise age-inappropriate for
+      children under 10. Any flag here forces human review regardless of
+      the weighted score.
+    weight: 0.25
+    min_score: 0.8
+
+  - name: lesson_clarity
+    description: >
+      Only scored when the project's theme carries a `lesson`: the lesson is
+      visibly demonstrated by the characters and the hook line is audible in
+      the transcript, delivered without lecturing or frightening the viewer.
+    weight: 0.15
+    min_score: 0.6
+    conditional: true
+
+pass_threshold: 0.7
+max_attempts_before_human_review: 3
+audio_wer_retry_threshold: 0.25
+audio_max_attempts_before_human_review: 2  # retry audio once, then human review (§6)

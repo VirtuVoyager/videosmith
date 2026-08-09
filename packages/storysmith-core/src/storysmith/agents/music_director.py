@@ -12,10 +12,14 @@ if TYPE_CHECKING:
     from storysmith.pipeline import PortBundle
 
 _NARRATION_GAP_S = 0.3
+# Sentinel key in retry_counts for the audio track (mirrors critic.py's
+# _AUDIO_RETRY_KEY) -- not a scene index, since audio has none.
+_AUDIO_RETRY_KEY = -1
 
 
 async def _run_rhyme(state: VideoProject, *, ports: PortBundle) -> dict[str, Any]:
     assert state.manifest is not None
+    attempt = state.retry_counts.get(_AUDIO_RETRY_KEY, 0) + 1
     mood = state.style.mood if state.style is not None else ""
     audio, cost = await ports.music_gen.generate(
         mode=Mode.RHYME,
@@ -24,10 +28,16 @@ async def _run_rhyme(state: VideoProject, *, ports: PortBundle) -> dict[str, Any
         duration_s=state.manifest.total_duration_s,
     )
     uri = await ports.storage.put(
-        key=f"{state.project_id}/audio_master.mp3", data=audio, content_type="audio/mpeg"
+        key=f"{state.project_id}/audio_master/attempt_{attempt}.mp3",
+        data=audio,
+        content_type="audio/mpeg",
     )
     asset = AssetRef(
-        kind=AssetKind.AUDIO_MASTER, uri=uri, content_hash=sha256_bytes(audio), cost_usd=cost
+        kind=AssetKind.AUDIO_MASTER,
+        attempt=attempt,
+        uri=uri,
+        content_hash=sha256_bytes(audio),
+        cost_usd=cost,
     )
     cost_entry = CostEntry(
         at=datetime.now(UTC), item="music:rhyme_master", provider="music_gen", cost_usd=cost
@@ -40,6 +50,7 @@ async def _run_topical(
 ) -> dict[str, Any]:
     assert state.manifest is not None
     manifest = state.manifest
+    attempt = state.retry_counts.get(_AUDIO_RETRY_KEY, 0) + 1
     mood = state.style.mood if state.style is not None else "cheerful"
 
     bed, bed_cost = await ports.music_gen.generate(
@@ -49,11 +60,14 @@ async def _run_topical(
         duration_s=manifest.total_duration_s,
     )
     bed_uri = await ports.storage.put(
-        key=f"{state.project_id}/audio_bed.mp3", data=bed, content_type="audio/mpeg"
+        key=f"{state.project_id}/audio_bed/attempt_{attempt}.mp3",
+        data=bed,
+        content_type="audio/mpeg",
     )
     assets = [
         AssetRef(
             kind=AssetKind.AUDIO_MASTER,
+            attempt=attempt,
             uri=bed_uri,
             content_hash=sha256_bytes(bed),
             cost_usd=bed_cost,
@@ -74,7 +88,7 @@ async def _run_topical(
             continue
         speech, tts_cost = await ports.tts.speak(text=scene.narration, voice=settings.tts_voice)
         n_uri = await ports.storage.put(
-            key=f"{state.project_id}/narration_{scene.index}.mp3",
+            key=f"{state.project_id}/narration_{scene.index}/attempt_{attempt}.mp3",
             data=speech,
             content_type="audio/mpeg",
         )
@@ -82,6 +96,7 @@ async def _run_topical(
             AssetRef(
                 kind=AssetKind.AUDIO_MASTER,
                 scene_index=scene.index,
+                attempt=attempt,
                 uri=n_uri,
                 content_hash=sha256_bytes(speech),
                 cost_usd=tts_cost,
