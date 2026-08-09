@@ -45,6 +45,12 @@ def _select_storage(settings: Settings) -> Any:
     raise NotImplementedError(f"storage_backend={settings.storage_backend!r} not implemented")
 
 
+def _select_video_gen(settings: Settings) -> Any:
+    from storysmith_adapters.video_replicate import ReplicateVideoGen
+
+    return ReplicateVideoGen(settings)
+
+
 @app.command()
 def run(
     brief: str = typer.Option(
@@ -64,15 +70,16 @@ def run(
         pipeline = Pipeline.with_stubs(settings)
     else:
         # Fail fast on whichever piece is misconfigured/missing before
-        # touching anything else -- llm/image_gen/storage are real as of
-        # WP2; video_gen/music_gen/tts/transcribe/publish/notify land in
-        # WP3-7, so a full non-stub run still isn't possible yet.
+        # touching anything else -- llm/image_gen/storage (WP2) and video_gen
+        # (WP3) are real; music_gen/tts/transcribe/publish/notify land in
+        # WP4-7, so a full non-stub run still isn't possible yet.
         _select_llm_adapter(settings)
         _select_storage(settings)
+        _select_video_gen(settings)
         raise NotImplementedError(
-            "video_gen/music_gen/tts/transcribe/publish/notify adapters land in WP3-7. "
-            "LLM (anthropic/groq) and image_gen (replicate) are ready, but a full non-stub "
-            "run isn't possible yet -- pass --stubs for now."
+            "music_gen/tts/transcribe/publish/notify adapters land in WP4-7. LLM "
+            "(anthropic/groq), image_gen and video_gen (replicate) are ready, but a full "
+            "non-stub run isn't possible yet -- pass --stubs for now."
         )
 
     project = asyncio.run(pipeline.run(brief=brief, mode=mode, project_id=resume))
