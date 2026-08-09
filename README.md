@@ -11,7 +11,7 @@ approval before anything goes live.
 | WP1 | done | Contracts, state, orchestrator skeleton, storage. Graph runs end to end with stub adapters; real LLM/image/video/music/tts/publish/notify adapters land in WP2-WP7 |
 | WP2 | done | Creative Director + Director + character refs. Multi-provider LLM adapter (anthropic, groq) plus image_replicate.py; CLI still requires `--stubs` for a full run until WP3-7 land |
 | WP3 | done | Videographer + Replicate video adapter (i2v/t2v selection, idempotency hashing, semaphore-bounded concurrency). CLI still requires `--stubs` for a full run until WP4-7 land |
-| WP4 | todo | Music Director |
+| WP4 | done | Music Director: ACE-Step (rhyme) + MusicGen (topical instrumental) + Kokoro TTS, all sharing a new `_replicate_base.py` poller (image/video adapters refactored onto it too). CLI still requires `--stubs` for a full run until WP5-7 land |
 | WP5 | todo | Editor (ffmpeg, deterministic) |
 | WP6 | todo | Critic / QA |
 | WP7 | todo | Review gate, Publisher, API, UI |
@@ -54,7 +54,9 @@ the spec here._
 | `SS_VIDEO_MODEL_I2V` | no | `wan-video/wan-2.2-i2v-fast` | Image-to-video model id |
 | `SS_VIDEO_MODEL_T2V` | no | `wan-video/wan-2.2-t2v-fast` | Text-to-video model id |
 | `SS_IMAGE_MODEL` | no | `black-forest-labs/flux-schnell` | Character ref image model id |
-| `SS_MUSIC_MODEL` | no | `lucataco/ace-step` | Music generation model id |
+| `SS_MUSIC_MODEL` | no | `lucataco/ace-step` | Rhyme-mode music model id (lyrics-driven full song) |
+| `SS_MUSIC_MODEL_INSTRUMENTAL` | no | `meta/musicgen` | Topical-mode music model id (instrumental bed) |
+| `SS_TTS_MODEL` | no | `jaaari/kokoro-82m` | Kokoro TTS model id on Replicate |
 | `SS_TTS_VOICE` | no | `af_bella` | Kokoro TTS voice id |
 | `SS_TTS_VOICE_HI` | no | — | TTS voice id used when `StyleContract.language` is `hi`/`hi-en` |
 | `SS_STORAGE_BACKEND` | no | `local` | `local` \| `s3` \| `azure_blob` |
