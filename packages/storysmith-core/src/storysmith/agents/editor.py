@@ -158,15 +158,20 @@ def _build_audio_topical_cmd(
             f"{joined}amix=inputs={len(delayed_labels)}:normalize=0[{narration_mix_label}]"
         )
 
+    # [nmix] feeds two different filters below (sidechaincompress's sidechain
+    # input, then the final amix) -- explicitly asplit it rather than reusing
+    # the label directly. Newer ffmpeg auto-inserts a split for a reused
+    # output label; ffmpeg 6.1 (Ubuntu 24.04's apt package) does not and
+    # fails with "Invalid stream specifier" / "matches no streams".
+    filters.append(f"[{narration_mix_label}]asplit=2[nmix1][nmix2]")
+
     # sidechaincompress's output tracks its main (first) input's duration, so
     # pad the bed first -- otherwise a bed shorter than the narration mix
     # (e.g. every stub audio track is a fixed 1s) truncates the whole ducked
     # mix down to the bed's length regardless of the final -t cap below.
     filters.append("[0:a]apad[bed_padded]")
-    filters.append(
-        f"[bed_padded][{narration_mix_label}]sidechaincompress=threshold=0.05:ratio=8[bed_ducked]"
-    )
-    filters.append(f"[bed_ducked][{narration_mix_label}]amix=inputs=2:normalize=0[mixed]")
+    filters.append("[bed_padded][nmix1]sidechaincompress=threshold=0.05:ratio=8[bed_ducked]")
+    filters.append("[bed_ducked][nmix2]amix=inputs=2:normalize=0[mixed]")
 
     cmd += [
         "-filter_complex",
