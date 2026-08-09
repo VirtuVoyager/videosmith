@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 import typer
 from storysmith.models import Mode
@@ -13,6 +14,35 @@ app = typer.Typer(add_completion=False, no_args_is_help=True)
 @app.callback()
 def _callback() -> None:
     """StorySmith worker CLI."""
+
+
+def _select_llm_adapter(settings: Settings) -> Any:
+    if settings.llm_provider == "anthropic":
+        from storysmith_adapters.llm_anthropic import AnthropicLLM
+
+        return AnthropicLLM(settings)
+    if settings.llm_provider == "groq":
+        from storysmith_adapters.llm_groq import GroqLLM
+
+        return GroqLLM(settings)
+    # SPEC-GAP: azure_openai is an accepted llm_provider value per §1.2b but
+    # has no adapter yet -- no llm_azure_openai.py has been written.
+    raise NotImplementedError(
+        f"llm_provider={settings.llm_provider!r} has no adapter yet "
+        "(anthropic and groq are implemented)"
+    )
+
+
+def _select_storage(settings: Settings) -> Any:
+    if settings.storage_backend == "local":
+        from storysmith_adapters.storage_local import LocalStorage
+
+        return LocalStorage(settings)
+    if settings.storage_backend == "s3":
+        from storysmith_adapters.storage_s3 import S3Storage
+
+        return S3Storage(settings)
+    raise NotImplementedError(f"storage_backend={settings.storage_backend!r} not implemented")
 
 
 @app.command()
@@ -33,11 +63,16 @@ def run(
     if stubs:
         pipeline = Pipeline.with_stubs(settings)
     else:
-        # SPEC-GAP: real LLM/image/video/music/tts/publish/notify adapters
-        # land across WP2-WP7 -- only storage_local/storage_s3 exist so far,
-        # so a non-stub run has nothing else to wire up yet.
+        # Fail fast on whichever piece is misconfigured/missing before
+        # touching anything else -- llm/image_gen/storage are real as of
+        # WP2; video_gen/music_gen/tts/transcribe/publish/notify land in
+        # WP3-7, so a full non-stub run still isn't possible yet.
+        _select_llm_adapter(settings)
+        _select_storage(settings)
         raise NotImplementedError(
-            "Real adapters are not implemented until WP2-WP7 land. Pass --stubs for now."
+            "video_gen/music_gen/tts/transcribe/publish/notify adapters land in WP3-7. "
+            "LLM (anthropic/groq) and image_gen (replicate) are ready, but a full non-stub "
+            "run isn't possible yet -- pass --stubs for now."
         )
 
     project = asyncio.run(pipeline.run(brief=brief, mode=mode, project_id=resume))

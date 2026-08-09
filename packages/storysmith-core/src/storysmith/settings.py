@@ -10,8 +10,16 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SS_", env_file=".env", extra="ignore")
 
     # --- LLM ---
-    llm_provider: str = "anthropic"  # anthropic | azure_openai
+    llm_provider: str = "anthropic"  # anthropic | groq | azure_openai
     anthropic_api_key: str = ""
+    anthropic_model_standard: str = "claude-sonnet-4-6"
+    anthropic_model_vision: str = "claude-sonnet-4-6"
+    # Groq: OpenAI-compatible API, hosts free/cheap open-weight models --
+    # useful for zero-cost development before switching llm_provider back to
+    # anthropic once the system is stable.
+    groq_api_key: str = ""
+    groq_model_standard: str = "llama-3.3-70b-versatile"
+    groq_model_vision: str = "llama-3.2-90b-vision-preview"
     azure_openai_endpoint: str = ""
     azure_openai_api_key: str = ""
     azure_openai_deployment_standard: str = ""
@@ -30,6 +38,7 @@ class Settings(BaseSettings):
     # --- Storage ---
     storage_backend: str = "local"  # local | s3 | azure_blob
     output_dir: str = "./out"
+    configs_dir: str = "./configs"  # repo-root configs/ (style presets, safety rules, rubrics)
     s3_bucket: str = ""
     aws_region: str = "eu-central-1"
     azure_blob_account_url: str = ""

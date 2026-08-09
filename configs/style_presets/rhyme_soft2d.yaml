@@ -1,1 +1,24 @@
-# SPEC-GAP: style preset content to be authored in WP2
+# Default style preset for rhyme-mode videos. Passed to the Creative
+# Director prompt as raw YAML text (§2.2); the LLM specializes it into a
+# full StyleContract for the specific brief.
+name: rhyme_soft2d
+description: >
+  Nursery-rhyme style short with soft 2D cutout animation -- StorySmith's
+  default look for rhyme-mode videos.
+art_style: >
+  soft 2D cutout animation, thick rounded outlines, flat cel-shaded color
+  fills, gentle paper-craft texture, warm rim lighting
+palette:
+  - "#FFD166"
+  - "#EF476F"
+  - "#06D6A0"
+  - "#118AB2"
+  - "#FFFFFF"
+mood: cheerful and gentle
+tempo_bpm: 100
+aspect_ratio: "9:16"
+resolution: "1080x1920"
+pacing_rules: >
+  Keep every scene to one clear idea. Cut on the beat. Favor simple,
+  readable compositions over busy backgrounds. Characters stay large and
+  centered in frame.
