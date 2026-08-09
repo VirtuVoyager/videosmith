@@ -10,7 +10,7 @@ approval before anything goes live.
 |---|---|---|
 | WP1 | done | Contracts, state, orchestrator skeleton, storage. Graph runs end to end with stub adapters; real LLM/image/video/music/tts/publish/notify adapters land in WP2-WP7 |
 | WP2 | done | Creative Director + Director + character refs. Multi-provider LLM adapter (anthropic, groq) plus image_replicate.py; CLI still requires `--stubs` for a full run until WP3-7 land |
-| WP3 | todo | Videographer + Replicate video adapter |
+| WP3 | done | Videographer + Replicate video adapter (i2v/t2v selection, idempotency hashing, semaphore-bounded concurrency). CLI still requires `--stubs` for a full run until WP4-7 land |
 | WP4 | todo | Music Director |
 | WP5 | todo | Editor (ffmpeg, deterministic) |
 | WP6 | todo | Critic / QA |
