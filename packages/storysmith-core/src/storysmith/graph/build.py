@@ -74,12 +74,21 @@ def _budget_guarded(fn: NodeFn, *, owns_status: bool = True) -> GuardedNodeFn:
     return wrapper
 
 
-def _critic_router(state: VideoProject) -> str:
+def _critic_router(state: VideoProject) -> list[str]:
+    # Any HUMAN_REVIEW (scene or audio) takes priority over retrying --
+    # further automatic retries are pointless once a human needs to look.
     if any(r.verdict == QAVerdict.HUMAN_REVIEW for r in state.qa_reports):
-        return "human_review"
-    if any(r.verdict == QAVerdict.RETRY for r in state.qa_reports):
-        return "retry"
-    return "pass"
+        return ["review_gate"]
+
+    destinations = []
+    if any(r.verdict == QAVerdict.RETRY and r.scene_index is not None for r in state.qa_reports):
+        destinations.append("videographer")
+    if any(r.verdict == QAVerdict.RETRY and r.scene_index is None for r in state.qa_reports):
+        # scene_index=None + RETRY is the audio report (§6) -- route back to
+        # music_director, not videographer, so a bad narration/lyrics take
+        # doesn't waste a scene-regeneration cycle (and vice versa).
+        destinations.append("music_director")
+    return destinations or ["editor"]
 
 
 def _checkpointer(settings: Settings) -> BaseCheckpointSaver[str]:
@@ -126,7 +135,7 @@ def build_graph(
     graph.add_conditional_edges(
         "critic",
         _critic_router,
-        {"retry": "videographer", "pass": "editor", "human_review": "review_gate"},
+        ["videographer", "music_director", "editor", "review_gate"],
     )
     graph.add_edge("editor", "review_gate")
     graph.add_edge("review_gate", "publisher")

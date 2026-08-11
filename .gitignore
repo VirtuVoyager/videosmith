@@ -224,3 +224,4 @@ secrets/*.json
 node_modules/
 apps/ui/.next/
 
+.DS_Store

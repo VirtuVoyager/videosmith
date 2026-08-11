@@ -12,9 +12,9 @@ from storysmith.agents.editor import (
     _build_loudnorm_cmd,
     _build_mux_cmd,
     _build_normalize_cmd,
-    _build_thumbnail_extract_cmd,
     _scene_midpoint_timestamp,
 )
+from storysmith.util.ffmpeg import build_frame_extract_cmd
 
 pytestmark = pytest.mark.wp5
 
@@ -155,8 +155,8 @@ def test_build_caption_cmd() -> None:
     assert cmd == ["ffmpeg", "-y", "-i", "in.mp4", "-vf", "ass=cap.ass", "-c:a", "copy", "out.mp4"]
 
 
-def test_build_thumbnail_extract_cmd() -> None:
-    cmd = _build_thumbnail_extract_cmd(Path("v.mp4"), 1.5, Path("frame.jpg"))
+def test_build_frame_extract_cmd() -> None:
+    cmd = build_frame_extract_cmd(Path("v.mp4"), 1.5, Path("frame.jpg"))
     assert cmd == [
         "ffmpeg",
         "-y",

@@ -28,8 +28,13 @@ class Settings(BaseSettings):
 
     # --- Generation providers ---
     replicate_api_token: str = ""
-    video_model_i2v: str = "wan-video/wan-2.2-i2v-fast"
-    video_model_t2v: str = "wan-video/wan-2.2-t2v-fast"
+    # xai/grok-imagine-video handles i2v and t2v via the same model id (image
+    # param present or absent); Wan needs two distinct repos, hence two
+    # settings fields -- point both at the same value for single-model
+    # providers, or back at wan-video/wan-2.2-{i2v,t2v}-fast to switch back.
+    video_model_i2v: str = "xai/grok-imagine-video"
+    video_model_t2v: str = "xai/grok-imagine-video"
+    video_resolution: str = "480p"  # 480p | 720p -- 720p is a 2.5x cost multiplier
     image_model: str = "black-forest-labs/flux-schnell"
     music_model: str = "lucataco/ace-step"  # rhyme mode: lyrics-driven full song
     music_model_instrumental: str = "meta/musicgen"  # topical mode: instrumental bed

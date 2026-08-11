@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,6 +18,8 @@ from storysmith.models import (
     VideoProject,
 )
 from storysmith.settings import Settings
+from storysmith.util.assets import latest_audio_bed, latest_audio_master, latest_narration_assets
+from storysmith.util.ffmpeg import build_frame_extract_cmd, probe_duration, run_ffmpeg
 from storysmith.util.hashing import sha256_bytes
 
 if TYPE_CHECKING:
@@ -230,27 +231,6 @@ def _build_caption_cmd(input_path: Path, ass_path: Path, output_path: Path) -> l
     ]
 
 
-def _build_thumbnail_extract_cmd(
-    video_path: Path, timestamp_s: float, output_path: Path
-) -> list[str]:
-    return [
-        "ffmpeg",
-        "-y",
-        "-ss",
-        f"{timestamp_s:.3f}",
-        "-i",
-        str(video_path),
-        "-frames:v",
-        "1",
-        # yuvj420p (not yuv420p): the mjpeg encoder rejects libx264's
-        # full-range yuv420p output under strict standard compliance
-        # ("Non full-range YUV is non-standard") without this.
-        "-pix_fmt",
-        "yuvj420p",
-        str(output_path),
-    ]
-
-
 # ---------------------------------------------------------------------------
 # ASS caption generation -- pure, unit-testable.
 # ---------------------------------------------------------------------------
@@ -338,32 +318,6 @@ def _render_thumbnail(frame_path: Path, title: str, output_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _run_ffmpeg(args: list[str]) -> None:
-    result = subprocess.run(args, capture_output=True)  # noqa: S603
-    if result.returncode != 0:
-        stderr = result.stderr.decode(errors="replace")[-4000:]
-        raise RuntimeError(f"ffmpeg failed (exit {result.returncode}): {' '.join(args)}\n{stderr}")
-
-
-def _probe_duration(path: Path) -> float:
-    result = subprocess.run(  # noqa: S603
-        [
-            "ffprobe",
-            "-v",
-            "error",
-            "-show_entries",
-            "format=duration",
-            "-of",
-            "csv=p=0",
-            str(path),
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return float(result.stdout.strip())
-
-
 def _latest_passing_scene_videos(state: VideoProject) -> list[tuple[int, AssetRef]]:
     passing_indices = {
         r.scene_index
@@ -380,16 +334,6 @@ def _latest_passing_scene_videos(state: VideoProject) -> list[tuple[int, AssetRe
         if current is None or asset.attempt > current.attempt:
             latest[asset.scene_index] = asset
     return sorted(latest.items())
-
-
-def _bed_and_narration(state: VideoProject) -> tuple[AssetRef | None, list[AssetRef]]:
-    audio_assets = [a for a in state.assets if a.kind == AssetKind.AUDIO_MASTER]
-    bed = next((a for a in audio_assets if a.meta.get("role") == "bed"), None)
-    narration = sorted(
-        (a for a in audio_assets if a.meta.get("role") == "narration"),
-        key=lambda a: a.scene_index if a.scene_index is not None else 0,
-    )
-    return bed, narration
 
 
 async def _load_timing_map(ports: PortBundle, bed_asset: AssetRef) -> dict[int, float]:
@@ -440,29 +384,31 @@ async def run(state: VideoProject, *, ports: PortBundle, settings: Settings) -> 
             raw_path = tmp_path / f"raw_{idx}.mp4"
             raw_path.write_bytes(raw_bytes)
             norm_path = tmp_path / f"norm_{idx}.mp4"
-            await asyncio.to_thread(_run_ffmpeg, _build_normalize_cmd(raw_path, norm_path))
+            await asyncio.to_thread(run_ffmpeg, _build_normalize_cmd(raw_path, norm_path))
             normalized_paths.append(norm_path)
-            durations.append(await asyncio.to_thread(_probe_duration, norm_path))
+            durations.append(await asyncio.to_thread(probe_duration, norm_path))
             transitions.append(scenes_by_index[idx].transition)
 
         concat_path = tmp_path / "concat.mp4"
         await asyncio.to_thread(
-            _run_ffmpeg, _build_concat_cmd(normalized_paths, durations, transitions, concat_path)
+            run_ffmpeg, _build_concat_cmd(normalized_paths, durations, transitions, concat_path)
         )
-        video_duration = await asyncio.to_thread(_probe_duration, concat_path)
+        video_duration = await asyncio.to_thread(probe_duration, concat_path)
 
         if state.mode == Mode.RHYME:
-            master = next(a for a in state.assets if a.kind == AssetKind.AUDIO_MASTER)
+            master = latest_audio_master(state.assets)
+            assert master is not None
             master_bytes = await ports.storage.get(uri=master.uri)
             master_path = tmp_path / "master.mp3"
             master_path.write_bytes(master_bytes)
             mixed_audio_path = tmp_path / "audio_trimmed.wav"
             await asyncio.to_thread(
-                _run_ffmpeg,
+                run_ffmpeg,
                 _build_audio_trim_pad_cmd(master_path, video_duration, mixed_audio_path),
             )
         else:
-            bed, narration = _bed_and_narration(state)
+            bed = latest_audio_bed(state.assets)
+            narration = latest_narration_assets(state.assets)
             assert bed is not None, "topical mode requires a bed AUDIO_MASTER asset"
             bed_bytes = await ports.storage.get(uri=bed.uri)
             bed_path = tmp_path / "bed.mp3"
@@ -470,7 +416,7 @@ async def run(state: VideoProject, *, ports: PortBundle, settings: Settings) -> 
             if not narration:
                 mixed_audio_path = tmp_path / "audio_trimmed.wav"
                 await asyncio.to_thread(
-                    _run_ffmpeg,
+                    run_ffmpeg,
                     _build_audio_trim_pad_cmd(bed_path, video_duration, mixed_audio_path),
                 )
             else:
@@ -485,17 +431,17 @@ async def run(state: VideoProject, *, ports: PortBundle, settings: Settings) -> 
                     offsets.append(timing_map.get(asset.scene_index or 0, 0.0))
                 mixed_audio_path = tmp_path / "audio_mixed.wav"
                 await asyncio.to_thread(
-                    _run_ffmpeg,
+                    run_ffmpeg,
                     _build_audio_topical_cmd(
                         bed_path, narration_paths, offsets, video_duration, mixed_audio_path
                     ),
                 )
 
         loudnorm_path = tmp_path / "audio_final.wav"
-        await asyncio.to_thread(_run_ffmpeg, _build_loudnorm_cmd(mixed_audio_path, loudnorm_path))
+        await asyncio.to_thread(run_ffmpeg, _build_loudnorm_cmd(mixed_audio_path, loudnorm_path))
 
         muxed_path = tmp_path / "muxed.mp4"
-        await asyncio.to_thread(_run_ffmpeg, _build_mux_cmd(concat_path, loudnorm_path, muxed_path))
+        await asyncio.to_thread(run_ffmpeg, _build_mux_cmd(concat_path, loudnorm_path, muxed_path))
 
         final_audio_bytes = loudnorm_path.read_bytes()
         words, _cost = await ports.transcribe.transcribe(audio=final_audio_bytes)
@@ -503,14 +449,14 @@ async def run(state: VideoProject, *, ports: PortBundle, settings: Settings) -> 
         ass_path.write_text(build_ass_subtitles(words), encoding="utf-8")
         captioned_path = tmp_path / "final.mp4"
         await asyncio.to_thread(
-            _run_ffmpeg, _build_caption_cmd(muxed_path, ass_path, captioned_path)
+            run_ffmpeg, _build_caption_cmd(muxed_path, ass_path, captioned_path)
         )
         final_bytes = captioned_path.read_bytes()
 
         midpoint_ts = _scene_midpoint_timestamp(durations, transitions)
         frame_path = tmp_path / "frame.jpg"
         await asyncio.to_thread(
-            _run_ffmpeg, _build_thumbnail_extract_cmd(captioned_path, midpoint_ts, frame_path)
+            run_ffmpeg, build_frame_extract_cmd(captioned_path, midpoint_ts, frame_path)
         )
         thumb_path = tmp_path / "thumbnail.jpg"
         await asyncio.to_thread(_render_thumbnail, frame_path, manifest.title, thumb_path)
