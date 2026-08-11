@@ -59,8 +59,9 @@ the spec here._
 | `SS_AZURE_OPENAI_DEPLOYMENT_VISION` | yes (if azure) | — | Vision-tier deployment name |
 | `SS_AZURE_OPENAI_API_VERSION` | no | `2024-10-21` | Azure OpenAI API version |
 | `SS_REPLICATE_API_TOKEN` | yes | — | Replicate API token |
-| `SS_VIDEO_MODEL_I2V` | no | `wan-video/wan-2.2-i2v-fast` | Image-to-video model id |
-| `SS_VIDEO_MODEL_T2V` | no | `wan-video/wan-2.2-t2v-fast` | Text-to-video model id |
+| `SS_VIDEO_MODEL_I2V` | no | `xai/grok-imagine-video` | Image-to-video model id |
+| `SS_VIDEO_MODEL_T2V` | no | `xai/grok-imagine-video` | Text-to-video model id |
+| `SS_VIDEO_RESOLUTION` | no | `480p` | `480p` \| `720p` -- 720p is a 2.5x cost multiplier |
 | `SS_IMAGE_MODEL` | no | `black-forest-labs/flux-schnell` | Character ref image model id |
 | `SS_MUSIC_MODEL` | no | `lucataco/ace-step` | Rhyme-mode music model id (lyrics-driven full song) |
 | `SS_MUSIC_MODEL_INSTRUMENTAL` | no | `meta/musicgen` | Topical-mode music model id (instrumental bed) |

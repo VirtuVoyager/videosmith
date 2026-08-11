@@ -10,6 +10,10 @@ from storysmith_adapters.video_replicate import ReplicateVideoGen
 pytestmark = pytest.mark.wp3
 
 _BASE = "https://api.replicate.com/v1"
+# Provider-agnostic ids: keeps this test decoupled from whichever real
+# provider settings.video_model_{i2v,t2v} default to.
+_T2V_MODEL = "test-provider/t2v-model"
+_I2V_MODEL = "test-provider/i2v-model"
 
 
 async def _instant_sleep(_seconds: float) -> None:
@@ -21,8 +25,8 @@ def settings_video() -> Settings:
     return Settings(
         _env_file=None,
         replicate_api_token="tok",
-        video_model_i2v="wan-video/wan-2.2-i2v-fast",
-        video_model_t2v="wan-video/wan-2.2-t2v-fast",
+        video_model_i2v=_I2V_MODEL,
+        video_model_t2v=_T2V_MODEL,
     )
 
 
@@ -35,7 +39,7 @@ def _no_real_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
 async def test_poll_until_succeeded(settings_video: Settings) -> None:
     gen = ReplicateVideoGen(settings_video)
     with respx.mock(base_url=_BASE) as mock:
-        mock.post("/models/wan-video/wan-2.2-t2v-fast/predictions").mock(
+        mock.post(f"/models/{_T2V_MODEL}/predictions").mock(
             return_value=httpx.Response(201, json={"id": "p1", "status": "starting"})
         )
         mock.get("/predictions/p1").mock(
@@ -48,7 +52,6 @@ async def test_poll_until_succeeded(settings_video: Settings) -> None:
                         "id": "p1",
                         "status": "succeeded",
                         "output": ["https://example.com/v.mp4"],
-                        "metrics": {"predict_time": 4.0},
                     },
                 ),
             ]
@@ -62,13 +65,13 @@ async def test_poll_until_succeeded(settings_video: Settings) -> None:
         )
 
         assert data == b"MP4DATA"
-        assert cost == pytest.approx(4.0 * 0.05)
+        assert cost == pytest.approx(8 * 0.05)  # billed by requested output duration, not GPU time
 
 
 async def test_transient_retry_then_success(settings_video: Settings) -> None:
     gen = ReplicateVideoGen(settings_video)
     with respx.mock(base_url=_BASE) as mock:
-        mock.post("/models/wan-video/wan-2.2-t2v-fast/predictions").mock(
+        mock.post(f"/models/{_T2V_MODEL}/predictions").mock(
             side_effect=[
                 httpx.Response(429, text="rate limited"),
                 httpx.Response(201, json={"id": "p2", "status": "starting"}),
@@ -91,13 +94,13 @@ async def test_transient_retry_then_success(settings_video: Settings) -> None:
         )
 
         assert data == b"V2"
-        assert cost == pytest.approx(0.5)  # no metrics.predict_time -> flat cost fallback
+        assert cost == pytest.approx(5 * 0.05)
 
 
 async def test_content_rejected_not_retried(settings_video: Settings) -> None:
     gen = ReplicateVideoGen(settings_video)
     with respx.mock(base_url=_BASE) as mock:
-        submit_route = mock.post("/models/wan-video/wan-2.2-t2v-fast/predictions").mock(
+        submit_route = mock.post(f"/models/{_T2V_MODEL}/predictions").mock(
             return_value=httpx.Response(201, json={"id": "p3", "status": "starting"})
         )
         mock.get("/predictions/p3").mock(
@@ -113,3 +116,30 @@ async def test_content_rejected_not_retried(settings_video: Settings) -> None:
             )
 
         assert submit_route.call_count == 1  # not retried
+
+
+async def test_i2v_model_selected_when_reference_image_present(settings_video: Settings) -> None:
+    gen = ReplicateVideoGen(settings_video)
+    with respx.mock(base_url=_BASE) as mock:
+        submit_route = mock.post(f"/models/{_I2V_MODEL}/predictions").mock(
+            return_value=httpx.Response(201, json={"id": "p4", "status": "starting"})
+        )
+        mock.get("/predictions/p4").mock(
+            return_value=httpx.Response(
+                200,
+                json={"id": "p4", "status": "succeeded", "output": "https://example.com/v4.mp4"},
+            )
+        )
+        mock.get("https://example.com/v4.mp4").mock(return_value=httpx.Response(200, content=b"V4"))
+
+        await gen.generate(
+            prompt="a duck swims",
+            duration_s=5.0,
+            aspect_ratio="9:16",
+            reference_image=b"REF_IMAGE_BYTES",
+        )
+
+        assert submit_route.call_count == 1
+        sent_payload = submit_route.calls[0].request.content
+        assert b"REF_IMAGE_BYTES" not in sent_payload  # base64-encoded, not raw bytes
+        assert b"image" in sent_payload
