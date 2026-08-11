@@ -15,7 +15,7 @@ approval before anything goes live.
 | WP5 | done | Editor: real ffmpeg pipeline (normalize, crossfade/cut concat, audio mix+duck+loudnorm, faster-whisper transcribe, ASS caption burn-in, Pillow thumbnail overlay). Requires an ffmpeg build with libass (`ffmpeg-full` on Homebrew; Ubuntu's apt package already includes it). CLI still requires `--stubs` for a full run until WP6-7 land |
 | WP6 | done | Critic / QA: rubric-driven vision LLM scoring, keyframe extraction, safety-forces-human-review, retry ceilings (3 scene / 1 audio), audio WER check. Critic routing now fans out independently to `videographer` vs `music_director` depending on which failed, instead of always regenerating scenes for an audio-only issue |
 | WP7 | todo | Review gate, Publisher, API, UI |
-| WP8 | todo | Observability + cost ledger + ops |
+| WP8 | in-progress | Observability + resumability + cost ledger done: structlog JSON logs + run summary at every node (choke point in `graph/build.py`'s `_instrumented`), `AsyncPostgresSaver` checkpointing (real cross-process resume, see Ops), `cost_entries` Postgres table + daily budget cap, local self-hosted Opik tracing. AWS/ECS deployment scaffolding (§8 Dockerfiles, Terraform-out-of-scope console setup) not started -- not needed until an actual deploy target exists |
 
 ## Quickstart
 
@@ -35,6 +35,18 @@ formula does not -- install `ffmpeg-full` instead:
 ```bash
 brew uninstall ffmpeg --ignore-dependencies && brew install ffmpeg-full
 ```
+
+For real cross-process resumability (survive a killed/crashed run without regenerating
+already-completed scenes) and a durable, cross-run cost ledger, point `SS_DB_URL` at a real
+Postgres instead of leaving it empty:
+
+```bash
+docker compose up -d postgres
+uv run alembic upgrade head   # creates cost_entries (checkpoint tables self-migrate on first run)
+```
+
+Without `SS_DB_URL` set, the pipeline still runs (using an in-process `MemorySaver`), but a
+killed process loses all checkpoint state and the next run starts from scratch.
 
 ## Architecture
 
@@ -75,22 +87,28 @@ the spec here._
 | `SS_AWS_REGION` | no | `eu-central-1` | AWS region |
 | `SS_AZURE_BLOB_ACCOUNT_URL` | yes (if azure_blob) | — | Azure Blob account URL |
 | `SS_AZURE_BLOB_CONTAINER` | no | `storysmith` | Azure Blob container name |
-| `SS_DB_URL` | no | empty (MemorySaver) | Postgres URL for checkpointing |
-| `SS_BUDGET_CAP_USD` | no | `12.0` | Per-project budget cap |
+| `SS_DB_URL` | no | empty (MemorySaver, in-process only) | `postgresql+psycopg://user:pass@host:5432/db` -- enables `AsyncPostgresSaver` checkpointing (real cross-process resume) and `cost_entries` persistence |
+| `SS_BUDGET_CAP_USD` | no | `12.0` | Per-run budget cap (checked every node, mid-run) |
+| `SS_DAILY_BUDGET_CAP_USD` | no | `0` (disabled) | Cross-run cap checked against `cost_entries` before a new run starts; requires `SS_DB_URL` |
 | `SS_DEBUG` | no | `0` | `1` waits for debugpy client in container |
 | `SS_SKIP_FFMPEG` | no | `0` | `1` skips ffmpeg-dependent tests (§5) |
 | `SS_TELEGRAM_BOT_TOKEN` | yes (for review gate) | — | Telegram bot token |
 | `SS_TELEGRAM_CHAT_ID` | yes (for review gate) | — | Telegram chat id |
 | `SS_API_BEARER_TOKEN` | yes | — | Static bearer token for the FastAPI console |
 | `SS_YOUTUBE_CLIENT_SECRETS_PATH` | yes (for publish) | `./secrets/yt_client.json` | YouTube OAuth client secrets path |
-| `SS_OPIK_ENABLED` | no | `0` | Enable OPIK tracing |
-| `SS_OPIK_API_KEY` | yes (if opik enabled) | — | OPIK API key |
+| `SS_OPIK_ENABLED` | no | `0` | Enable Opik tracing (one span per graph node) |
+| `SS_OPIK_API_KEY` | no | — | Only needed for cloud Opik; self-hosted local instances need no key |
+| `SS_OPIK_URL` | no | `http://localhost:5173/api` | Self-hosted local Opik instance base URL (note the `/api` suffix) |
 
 ## Running Tests
 
 ```bash
 # Unit — no network, stub adapters only, runs on every commit
 uv run pytest tests/unit -m "not slow" --cov --cov-fail-under=80
+# WP8 tests that need real Postgres (checkpoint resume, cost ledger, daily cap)
+# auto-skip if nothing is reachable at SS_DB_URL / localhost:5432; to run them:
+docker compose up -d postgres && uv run alembic upgrade head
+uv run pytest tests/unit -m wp8
 
 # LLM eval — real LLM calls, costs money, run manually/nightly
 uv run deepeval test run tests/llm
@@ -112,8 +130,52 @@ Configs live in [.vscode/launch.json](.vscode/launch.json):
 
 ## Ops
 
-_SPEC-GAP: cron deployment summary, secrets locations, YouTube OAuth one-time setup,
-budget cap behavior, and `BUDGET_ABORT`/`HUMAN_REVIEW` runbook land here at WP8._
+**Diagnosability.** Every graph node emits structured (JSON, via `structlog`) `node_start` /
+`node_done` / `node_failed` events with `project_id` bound, at the single choke point every
+node passes through (`graph/build.py`'s `_instrumented` wrapper). `Pipeline.run()` also logs
+`run_starting`/`run_resuming`, `run_failed` (with wall time) on exception, and a `run_summary`
+at the end of every run: total cost, cost broken down by provider, retries per scene, wall
+time. To find out what happened on a failed `project_id`, grep the worker's JSON logs for
+that `project_id` -- `node_failed` marks exactly which node and includes the exception.
+
+**Resumability.** Set `SS_DB_URL` to a real Postgres and the graph checkpoints there via
+`AsyncPostgresSaver` instead of an in-process `MemorySaver`. If a run is killed or crashes
+mid-way, `storysmith run --resume <project_id>` (or `Pipeline.run(..., project_id=...)` from
+a brand-new process) picks up from the last completed node's checkpoint -- already-generated
+scenes/audio/etc. are not regenerated, so a crash doesn't waste the money already spent on
+them. Without `SS_DB_URL`, resumption only works within the same process (e.g. after a
+single node's internal retry), not across a process restart.
+
+**Cost ledger & daily budget cap.** With `SS_DB_URL` set, every `CostEntry` a node adds is
+also written to the `cost_entries` Postgres table (in addition to the in-memory/checkpointed
+`VideoProject.cost_ledger`), so spend is queryable across runs and processes -- not just
+within one project's state. `SS_BUDGET_CAP_USD` remains the per-run cap (checked before every
+node); `SS_DAILY_BUDGET_CAP_USD` is a separate cross-run cap checked once at the start of
+`Pipeline.run()` against today's `cost_entries` total, and raises `BudgetExceededError` before
+anything runs if today's spend is already at or over the cap. This is the app-level daily
+aggregation layer that plugs the gap left by Replicate's July 2025 removal of monthly spend
+limits (Replicate itself only offers a hard prepaid-credit stop, no daily granularity).
+
+**Migrations.** `cost_entries`' schema is defined by the Alembic migration at
+`alembic/versions/0001_create_cost_entries.py`; run `uv run alembic upgrade head` against
+`SS_DB_URL` to apply it to a shared/production database. `Pipeline.run()` also calls
+`CREATE TABLE IF NOT EXISTS` via the ORM model on every run as a dev/test convenience (see
+`db.ensure_schema`) -- safe to leave in place alongside Alembic since it's a no-op once the
+migration has run. LangGraph's own checkpoint tables (`checkpoints`, `checkpoint_writes`,
+`checkpoint_blobs`, `checkpoint_migrations`) are created separately by
+`AsyncPostgresSaver.setup()` the first time a Postgres-backed run happens -- they're not part
+of the Alembic migration.
+
+**Observability (Opik).** `SS_OPIK_ENABLED=1` adds one Opik span per graph node (same choke
+point as the structlog logging), pointed at `SS_OPIK_URL` (a self-hosted local instance by
+default, e.g. `http://localhost:5173/api` on OrbStack). No `opik.configure()` call is made
+(that writes a persistent `~/.opik.config` dotfile); instead `OPIK_URL_OVERRIDE` /
+`OPIK_PROJECT_NAME` / `OPIK_API_KEY` are set as process env vars at the app edge
+(`apps/worker/main.py`, only when `settings.opik_enabled`), which the Opik SDK reads on its
+own. Self-hosted instances need no API key.
+
+_SPEC-GAP: cron deployment summary, secrets locations, YouTube OAuth one-time setup, and AWS
+container deployment land once an actual deploy target exists -- not needed for local/dev use._
 
 ## Cost
 

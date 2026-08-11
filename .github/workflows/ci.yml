@@ -10,6 +10,24 @@ jobs:
   checks:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      # WP8: AsyncPostgresSaver checkpointing + cost_entries persistence
+      # tests need a real Postgres, not a mock -- matches docker-compose.yml.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: storysmith
+          POSTGRES_PASSWORD: storysmith
+          POSTGRES_DB: storysmith
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U storysmith -d storysmith"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      SS_DB_URL: postgresql+psycopg://storysmith:storysmith@localhost:5432/storysmith
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5

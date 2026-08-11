@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from typing import Any
 
+import structlog
 import typer
 from storysmith.models import Mode
 from storysmith.pipeline import Pipeline
@@ -11,9 +13,38 @@ from storysmith.settings import Settings
 app = typer.Typer(add_completion=False, no_args_is_help=True)
 
 
+def _configure_structlog() -> None:
+    # §0.2: JSON output, one bound logger per agent (project_id bound at the
+    # node-wrapper choke point in graph/build.py's _instrumented).
+    structlog.configure(
+        processors=[
+            structlog.processors.add_log_level,
+            structlog.processors.TimeStamper(fmt="iso"),
+            structlog.processors.JSONRenderer(),
+        ],
+        wrapper_class=structlog.make_filtering_bound_logger(20),  # INFO
+        logger_factory=structlog.PrintLoggerFactory(),
+    )
+
+
+def _configure_opik(settings: Settings) -> None:
+    # opik.configure() writes a persistent ~/.opik.config dotfile; the SDK
+    # reads these two env vars on its own before that, so setting them here
+    # (app edge only -- storysmith-core never reads os.environ) is enough to
+    # point @opik.track traces at the local self-hosted instance with no
+    # global side effect and no API key needed.
+    if not settings.opik_enabled:
+        return
+    os.environ["OPIK_URL_OVERRIDE"] = settings.opik_url
+    os.environ["OPIK_PROJECT_NAME"] = "storysmith"
+    if settings.opik_api_key:
+        os.environ["OPIK_API_KEY"] = settings.opik_api_key
+
+
 @app.callback()
 def _callback() -> None:
     """StorySmith worker CLI."""
+    _configure_structlog()
 
 
 def _select_llm_adapter(settings: Settings) -> Any:
@@ -86,6 +117,7 @@ def run(
 ) -> None:
     """Run the StorySmith pipeline end to end."""
     settings = Settings()
+    _configure_opik(settings)
     if stubs:
         pipeline = Pipeline.with_stubs(settings)
     else:

@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: storysmith
+      POSTGRES_PASSWORD: storysmith
+      POSTGRES_DB: storysmith
+    ports:
+      - "5432:5432"
+    volumes:
+      - storysmith_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U storysmith -d storysmith"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  storysmith_postgres_data:
