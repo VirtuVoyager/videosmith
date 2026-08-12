@@ -96,9 +96,27 @@ def _instrumented(fn: NodeFn, *, node_name: str, settings: Settings) -> NodeFn:
             log.exception("node_failed")
             raise
         new_entries = result.get("cost_ledger")
-        if new_entries and settings.db_url:
-            await db.record_cost_entries(
-                settings.db_url, project_id=state.project_id, entries=new_entries
+        if settings.db_url:
+            if new_entries:
+                await db.record_cost_entries(
+                    settings.db_url, project_id=state.project_id, entries=new_entries
+                )
+            # §7: the FastAPI review console reads this snapshot table rather
+            # than LangGraph's checkpoint tables. manifest/status may come
+            # from this node's own delta or (if this node didn't touch them)
+            # from the pre-node state -- an approximate merge, not the full
+            # reducer-aware VideoProject the graph itself would produce, but
+            # good enough for a dashboard row.
+            manifest = result.get("manifest", state.manifest)
+            await db.upsert_project_snapshot(
+                settings.db_url,
+                project_id=state.project_id,
+                thread_id=state.project_id,
+                status=str(result.get("status", state.status)),
+                mode=str(state.mode),
+                brief=state.brief,
+                title=manifest.title if manifest else None,
+                total_cost_usd=state.total_cost + sum(e.cost_usd for e in new_entries or []),
             )
         log.info("node_done", new_cost_usd=sum(e.cost_usd for e in new_entries or []))
         return result

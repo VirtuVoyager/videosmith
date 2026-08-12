@@ -70,7 +70,15 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
     api_bearer_token: str = ""
+    # review_gate's Telegram message links here (§7's "approve/reject deep
+    # links") -- the UI page holds the bearer token client-side and calls the
+    # API's approve/reject endpoints, since a bare Telegram link can't carry
+    # an Authorization header.
+    console_base_url: str = "http://localhost:3000"
     youtube_client_secrets_path: str = "./secrets/yt_client.json"
+    # Written by scripts/youtube_auth.py's one-time OAuth flow; read (and
+    # refreshed in place) by publish_youtube.py on every upload.
+    youtube_token_path: str = "./secrets/yt_token.json"
 
     # --- Observability ---
     opik_enabled: bool = False

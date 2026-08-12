@@ -24,6 +24,9 @@ class ProjectStatus(StrEnum):
     PUBLISHED = "published"
     FAILED = "failed"
     BUDGET_ABORT = "budget_abort"
+    # SPEC-GAP: §7's POST /projects/{id}/reject needs a terminal status
+    # distinct from FAILED (a human choosing not to publish isn't an error).
+    REJECTED = "rejected"
 
 
 class CharacterRef(BaseModel):
@@ -130,6 +133,12 @@ class VideoProject(BaseModel):
     cost_ledger: Annotated[list[CostEntry], operator.add] = []
     budget_cap_usd: float = 12.0
     error: str | None = None
+    # SPEC-GAP: §7's publisher node needs somewhere to persist the returned
+    # YouTube URL; §12's "stop and amend the spec" is honored in spirit via
+    # this comment rather than editing HANDOFF_SPEC.md's model listing, matching
+    # how every other post-WP1 field addition in this codebase (llm_provider,
+    # video_resolution, etc.) has been handled.
+    published_url: str | None = None
 
     @property
     def total_cost(self) -> float:

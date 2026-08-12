@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, time, timedelta
 
 from sqlalchemy import Float, String, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -26,6 +27,28 @@ class CostEntryRow(Base):
     item: Mapped[str] = mapped_column(String)
     provider: Mapped[str] = mapped_column(String)
     cost_usd: Mapped[float] = mapped_column(Float)
+
+
+class ProjectRow(Base):
+    """Cheap queryable snapshot of the latest known VideoProject state, kept
+    in sync from the same node-wrapper choke point as CostEntryRow (§7/§8).
+
+    The FastAPI review console (apps/api) lists/looks up projects from this
+    table rather than reaching into LangGraph's checkpoint tables directly --
+    those are keyed by thread_id/checkpoint_id and aren't meant to be queried
+    ad hoc (e.g. "all projects with status=review"); this table is.
+    """
+
+    __tablename__ = "projects"
+
+    project_id: Mapped[str] = mapped_column(String, primary_key=True)
+    thread_id: Mapped[str] = mapped_column(String, index=True)
+    status: Mapped[str] = mapped_column(String, index=True)
+    mode: Mapped[str] = mapped_column(String)
+    brief: Mapped[str] = mapped_column(String)
+    title: Mapped[str | None] = mapped_column(String, nullable=True)
+    total_cost_usd: Mapped[float] = mapped_column(Float)
+    updated_at: Mapped[datetime] = mapped_column(index=True)
 
 
 def to_psycopg_dsn(db_url: str) -> str:
@@ -75,6 +98,54 @@ async def record_cost_entries(db_url: str, *, project_id: str, entries: list[Cos
             ]
         )
         await session.commit()
+
+
+async def upsert_project_snapshot(
+    db_url: str,
+    *,
+    project_id: str,
+    thread_id: str,
+    status: str,
+    mode: str,
+    brief: str,
+    title: str | None,
+    total_cost_usd: float,
+) -> None:
+    engine = _get_engine(db_url)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    values = {
+        "project_id": project_id,
+        "thread_id": thread_id,
+        "status": status,
+        "mode": mode,
+        "brief": brief,
+        "title": title,
+        "total_cost_usd": total_cost_usd,
+        "updated_at": datetime.now(UTC),
+    }
+    async with session_factory() as session:
+        stmt = pg_insert(ProjectRow).values(**values)
+        stmt = stmt.on_conflict_do_update(index_elements=[ProjectRow.project_id], set_=values)
+        await session.execute(stmt)
+        await session.commit()
+
+
+async def list_projects(db_url: str) -> list[ProjectRow]:
+    engine = _get_engine(db_url)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        result = await session.execute(select(ProjectRow).order_by(ProjectRow.updated_at.desc()))
+        return list(result.scalars().all())
+
+
+async def get_project(db_url: str, *, project_id: str) -> ProjectRow | None:
+    engine = _get_engine(db_url)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        result = await session.execute(
+            select(ProjectRow).where(ProjectRow.project_id == project_id)
+        )
+        return result.scalar_one_or_none()
 
 
 async def sum_cost_for_day(db_url: str, *, day: date) -> float:

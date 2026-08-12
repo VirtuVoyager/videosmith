@@ -40,6 +40,25 @@ def settings_test_pg(tmp_path: Path) -> Settings:
     )
 
 
+async def _postgres_reachable(db_url: str) -> bool:
+    from storysmith import db
+
+    try:
+        await db.ensure_schema(db_url)
+    except Exception:
+        return False
+    return True
+
+
+@pytest.fixture
+def pg_required(settings_test_pg: Settings) -> Settings:
+    import asyncio
+
+    if not asyncio.run(_postgres_reachable(settings_test_pg.db_url)):
+        pytest.skip("no reachable Postgres at SS_DB_URL / localhost:5432 -- see docker-compose.yml")
+    return settings_test_pg
+
+
 @pytest.fixture
 def stub_ports() -> PortBundle:
     return stub_port_bundle()

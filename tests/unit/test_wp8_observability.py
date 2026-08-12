@@ -24,26 +24,6 @@ from storysmith_adapters.stubs import (
 pytestmark = pytest.mark.wp8
 
 
-def _postgres_reachable(db_url: str) -> bool:
-    import asyncio
-
-    async def _check() -> bool:
-        try:
-            await db.ensure_schema(db_url)
-        except Exception:
-            return False
-        return True
-
-    return asyncio.run(_check())
-
-
-@pytest.fixture
-def pg_required(settings_test_pg: Settings) -> Settings:
-    if not _postgres_reachable(settings_test_pg.db_url):
-        pytest.skip("no reachable Postgres at SS_DB_URL / localhost:5432 -- see docker-compose.yml")
-    return settings_test_pg
-
-
 class _CountingLLM(StubLLM):
     def __init__(self) -> None:
         self.calls = 0
