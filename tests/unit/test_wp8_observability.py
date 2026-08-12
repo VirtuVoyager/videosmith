@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -68,7 +68,7 @@ async def test_cost_ledger_writes_rows(pg_required: Settings) -> None:
     ]
     await db.record_cost_entries(pg_required.db_url, project_id="wp8-ledger-test", entries=entries)
 
-    spent = await db.sum_cost_for_day(pg_required.db_url, day=date.today())
+    spent = await db.sum_cost_for_day(pg_required.db_url, day=datetime.now(UTC).date())
     assert spent >= 3.75 - 1e-9
 
 

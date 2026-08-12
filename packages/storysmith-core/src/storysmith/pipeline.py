@@ -4,7 +4,7 @@ import time
 import uuid
 from contextlib import AbstractAsyncContextManager, nullcontext
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, datetime
 from typing import Any, cast
 
 import structlog
@@ -70,7 +70,13 @@ class Pipeline:
         config = RunnableConfig(configurable={"thread_id": project_id})
 
         if self.settings.db_url and self.settings.daily_budget_cap_usd > 0:
-            spent_today = await db.sum_cost_for_day(self.settings.db_url, day=date.today())
+            # UTC, not local date -- cost_entries.at and sum_cost_for_day's day
+            # boundary are both UTC (§8); date.today() is local-timezone and
+            # would silently miss/misattribute entries near local midnight
+            # whenever local time isn't also UTC.
+            spent_today = await db.sum_cost_for_day(
+                self.settings.db_url, day=datetime.now(UTC).date()
+            )
             if spent_today >= self.settings.daily_budget_cap_usd:
                 raise BudgetExceededError(
                     f"today's spend ${spent_today:.2f} already at/over daily cap "

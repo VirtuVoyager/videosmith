@@ -82,22 +82,50 @@ class GroqLLM:
             except _TRANSIENT_EXCEPTIONS as exc:
                 raise TransientError(str(exc)) from exc
 
-        response = await with_retries(lambda: _call(messages))
-        parsed, cost, error = self._parse(response, model, schema)
+        async def _call_and_parse(
+            msgs: list[dict[str, object]],
+        ) -> tuple[BaseModel | None, float, str | None, groq.types.chat.ChatCompletion | None]:
+            try:
+                response = await with_retries(lambda: _call(msgs))
+            except groq.BadRequestError as exc:
+                # Some Groq-hosted models validate the tool call against the
+                # schema server-side and reject the request outright (400
+                # tool_use_failed) instead of returning a malformed response
+                # for our own _parse() to catch -- not transient (retrying the
+                # same request just repeats the same 400), so it's treated as
+                # the schema-validation failure the repair round exists for,
+                # rather than letting it escape and crash the whole run.
+                return None, 0.0, str(exc), None
+            parsed, cost, error = self._parse(response, model, schema)
+            return parsed, cost, error, response
+
+        parsed, cost, error, response = await _call_and_parse(messages)
         if parsed is not None:
             return parsed, cost
 
-        repair_messages = [
-            *messages,
-            {"role": "assistant", "content": None, "tool_calls": _tool_calls(response)},
-            {
-                "role": "tool",
-                "tool_call_id": _tool_calls(response)[0]["id"],
-                "content": f"Validation error, fix and resend: {error}",
-            },
-        ]
-        response2 = await with_retries(lambda: _call(repair_messages))
-        parsed2, cost2, error2 = self._parse(response2, model, schema)
+        if response is not None:
+            repair_messages = [
+                *messages,
+                {"role": "assistant", "content": None, "tool_calls": _tool_calls(response)},
+                {
+                    "role": "tool",
+                    "tool_call_id": _tool_calls(response)[0]["id"],
+                    "content": f"Validation error, fix and resend: {error}",
+                },
+            ]
+        else:
+            # No response object to build a tool-call repair message from --
+            # the request itself was rejected. Re-send the original prompt
+            # with the failure appended to the system message instead.
+            repair_messages = [
+                {
+                    "role": "system",
+                    "content": f"{system}\n\nYour previous attempt failed: {error}. "
+                    "Ensure the emit tool call strictly matches its schema.",
+                },
+                {"role": "user", "content": user_content},
+            ]
+        parsed2, cost2, error2, _ = await _call_and_parse(repair_messages)
         total_cost = cost + cost2
         if parsed2 is None:
             raise LLMStructuredOutputError(
