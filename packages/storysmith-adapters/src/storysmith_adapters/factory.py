@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from storysmith.pipeline import PortBundle
-from storysmith.ports import LLMPort, StoragePort
+from storysmith.ports import LLMPort, NotifyPort, StoragePort
 from storysmith.settings import Settings
 
 
@@ -34,13 +34,26 @@ def _select_storage(settings: Settings) -> StoragePort:
     raise NotImplementedError(f"storage_backend={settings.storage_backend!r} not implemented")
 
 
+def _select_notify(settings: Settings) -> NotifyPort:
+    if settings.telegram_bot_token and settings.telegram_chat_id:
+        from storysmith_adapters.notify_telegram import TelegramNotify
+
+        return TelegramNotify(settings)
+    # Telegram not configured yet -- log the review_gate message instead of
+    # hard-failing the run. Approve/reject already goes through the UI
+    # console (reads/writes Postgres directly), so this only costs the
+    # Telegram ping, not the review workflow itself.
+    from storysmith_adapters.notify_console import ConsoleNotify
+
+    return ConsoleNotify()
+
+
 def build_port_bundle(settings: Settings) -> PortBundle:
     """Real (non-stub) adapters for every port, shared by apps/worker (live
     `storysmith run`) and apps/api (approve -> resume graph, POST /runs)
     so the two apps can't drift on adapter selection."""
     from storysmith_adapters.image_replicate import ReplicateImageGen
     from storysmith_adapters.music_replicate import ReplicateMusicGen
-    from storysmith_adapters.notify_telegram import TelegramNotify
     from storysmith_adapters.publish_youtube import YouTubePublish
     from storysmith_adapters.transcribe_whisper import WhisperTranscribe
     from storysmith_adapters.tts_kokoro import KokoroTTS
@@ -55,5 +68,5 @@ def build_port_bundle(settings: Settings) -> PortBundle:
         transcribe=WhisperTranscribe(),
         storage=_select_storage(settings),
         publish=YouTubePublish(settings),
-        notify=TelegramNotify(settings),
+        notify=_select_notify(settings),
     )
