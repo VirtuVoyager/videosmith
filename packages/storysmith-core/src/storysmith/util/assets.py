@@ -21,6 +21,15 @@ def latest_audio_bed(assets: list[AssetRef]) -> AssetRef | None:
     return max(candidates, key=lambda a: a.attempt, default=None)
 
 
+def latest_scene_still(assets: list[AssetRef], scene_index: int) -> AssetRef | None:
+    """Latest-attempt SCENE_STILL for one scene (Amendment 01) -- a composition
+    retry regenerates the still, so there can be multiple attempts in state."""
+    candidates = [
+        a for a in assets if a.kind == AssetKind.SCENE_STILL and a.scene_index == scene_index
+    ]
+    return max(candidates, key=lambda a: a.attempt, default=None)
+
+
 def latest_narration_assets(assets: list[AssetRef]) -> list[AssetRef]:
     """Latest-attempt narration AUDIO_MASTER per scene index, sorted by index."""
     by_scene: dict[int, AssetRef] = {}

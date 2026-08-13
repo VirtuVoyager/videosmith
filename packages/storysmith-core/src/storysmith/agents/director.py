@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from storysmith.errors import LLMStructuredOutputError
-from storysmith.models import CostEntry, ProjectStatus, SceneManifest, VideoProject
+from storysmith.models import (
+    CostEntry,
+    ProjectStatus,
+    Scene,
+    SceneGenMode,
+    SceneManifest,
+    VideoProject,
+)
 from storysmith.settings import Settings
 from storysmith.util import prompts
 
@@ -23,9 +31,104 @@ _MAX_DURATION_S = 60.0
 _DURATION_TOLERANCE_S = 2.0
 _MIN_STYLE_WORD_LEN = 3
 
+# Amendment 01 §3: crude noun-ish token overlap check between an i2v scene's
+# scene_image_prompt (composition, fixed) and video_prompt (motion only) --
+# not real NLP/POS tagging, just a stopword-filtered word-overlap heuristic
+# that's good enough to catch a video_prompt that redundantly re-describes
+# layout the still already fixed.
+_MOTION_PROMPT_STOPWORDS = {
+    "the",
+    "a",
+    "an",
+    "and",
+    "or",
+    "but",
+    "with",
+    "of",
+    "in",
+    "on",
+    "at",
+    "to",
+    "for",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "being",
+    "this",
+    "that",
+    "these",
+    "those",
+    "it",
+    "its",
+    "as",
+    "by",
+    "from",
+    "into",
+    "over",
+    "under",
+    "static",
+    "camera",
+    "remains",
+    "stays",
+    "stay",
+    "fixed",
+    "nothing",
+    "else",
+    "moves",
+    "move",
+    "moving",
+    "then",
+    "while",
+    "only",
+    "does",
+    "not",
+    "no",
+}
+_LAYOUT_OVERLAP_THRESHOLD = 0.5
+
+
+def _significant_words(text: str) -> set[str]:
+    return {
+        word
+        for word in re.findall(r"[a-z]+", text.lower())
+        if len(word) > _MIN_STYLE_WORD_LEN and word not in _MOTION_PROMPT_STOPWORDS
+    }
+
+
+def _scene_violations(scene: Scene, style_words: list[str]) -> list[str]:
+    violations: list[str] = []
+    prompt_lower = scene.video_prompt.lower()
+    if style_words and not any(word in prompt_lower for word in style_words):
+        violations.append(
+            f"scene {scene.index} video_prompt doesn't restate the art style: "
+            f"{scene.video_prompt!r}"
+        )
+
+    if scene.gen_mode == SceneGenMode.I2V:
+        if not scene.scene_image_prompt or not scene.scene_image_prompt.strip():
+            violations.append(
+                f"scene {scene.index} has gen_mode=i2v but no scene_image_prompt "
+                "-- every i2v scene needs a complete static composition prompt"
+            )
+        else:
+            image_words = _significant_words(scene.scene_image_prompt)
+            motion_words = _significant_words(scene.video_prompt)
+            overlap = image_words & motion_words
+            if image_words and len(overlap) / len(image_words) > _LAYOUT_OVERLAP_THRESHOLD:
+                violations.append(
+                    f"scene {scene.index} video_prompt repeats scene-composition words "
+                    f"already fixed by scene_image_prompt ({sorted(overlap)}) -- "
+                    "video_prompt must describe motion only, not layout"
+                )
+    return violations
+
 
 def _validation_violations(manifest: SceneManifest, art_style: str) -> list[str]:
-    """Code-level post-validation from §2.2 -- never left to the LLM to self-check."""
+    """Code-level post-validation from §2.2 (+ Amendment 01 §3) -- never left
+    to the LLM to self-check."""
     violations: list[str] = []
 
     scene_count = len(manifest.scenes)
@@ -48,12 +151,7 @@ def _validation_violations(manifest: SceneManifest, art_style: str) -> list[str]
         if len(word.strip(",.")) > _MIN_STYLE_WORD_LEN
     ]
     for scene in manifest.scenes:
-        prompt_lower = scene.video_prompt.lower()
-        if style_words and not any(word in prompt_lower for word in style_words):
-            violations.append(
-                f"scene {scene.index} video_prompt doesn't restate the art style: "
-                f"{scene.video_prompt!r}"
-            )
+        violations.extend(_scene_violations(scene, style_words))
 
     return violations
 
@@ -79,6 +177,7 @@ async def run(state: VideoProject, *, ports: PortBundle, settings: Settings) -> 
             brief=state.brief,
             mode=state.mode.value,
             style_json=style.model_dump_json(),
+            default_gen_mode=settings.default_scene_gen_mode,
             violation_note=violation_note,
         )
         obj, cost = await ports.llm.complete_structured(

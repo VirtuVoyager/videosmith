@@ -16,6 +16,7 @@ approval before anything goes live.
 | WP6 | done | Critic / QA: rubric-driven vision LLM scoring, keyframe extraction, safety-forces-human-review, retry ceilings (3 scene / 1 audio), audio WER check. Critic routing now fans out independently to `videographer` vs `music_director` depending on which failed, instead of always regenerating scenes for an audio-only issue |
 | WP7 | done | Review gate (Telegram: title/cost/QA summary/presigned video/approve-reject link), real `publish_youtube.py` (YouTube Data API v3, madeForKids) + `notify_telegram.py` adapters, FastAPI review console (`GET/POST /projects`, `/healthz`, bearer auth) backed by a `projects` Postgres snapshot table, and a minimal Next.js 15 + Tailwind UI (project list + player/QA-cards/approve-reject page), verified end-to-end in a real browser against the real API and Postgres |
 | WP8 | in-progress | Observability + resumability + cost ledger done: structlog JSON logs + run summary at every node (choke point in `graph/build.py`'s `_instrumented`), `AsyncPostgresSaver` checkpointing (real cross-process resume, see Ops), `cost_entries` Postgres table + daily budget cap, local self-hosted Opik tracing. AWS/ECS deployment scaffolding (§8 Dockerfiles, Terraform-out-of-scope console setup) not started -- not needed until an actual deploy target exists |
+| Amendment 01 | done | Start-frame conditioned scene generation ([HANDOFF_SPEC_AMENDMENT_01_scene_composition.md](HANDOFF_SPEC_AMENDMENT_01_scene_composition.md)): a new `scene_stills` node composes a fixed still image per i2v scene (Director now writes `scene_image_prompt` + motion-only `video_prompt` per scene), which `videographer` conditions video generation on instead of a shared character portrait. Critic classifies retries by `failure_layer` (composition vs motion) so the router only regenerates the still when the *frame* was wrong, not on every retry |
 
 ## Quickstart
 
@@ -91,6 +92,8 @@ the spec here._
 | `SS_TTS_MODEL` | no | `jaaari/kokoro-82m` | Kokoro TTS model id on Replicate |
 | `SS_TTS_VOICE` | no | `af_bella` | Kokoro TTS voice id |
 | `SS_TTS_VOICE_HI` | no | — | TTS voice id used when `StyleContract.language` is `hi`/`hi-en` |
+| `SS_DEFAULT_SCENE_GEN_MODE` | no | `i2v` | Director's default per-scene `gen_mode` (`i2v` \| `t2v`) when unsure, see Amendment 01 |
+| `SS_SCENE_IMAGE_MODEL` | no | `black-forest-labs/flux-kontext-pro` | Image-conditioning-capable model id, reserved for a future adapter -- `scene_stills` currently reuses `SS_IMAGE_MODEL` (text-only), see settings.py |
 | `SS_STORAGE_BACKEND` | no | `local` | `local` \| `s3` \| `azure_blob` |
 | `SS_OUTPUT_DIR` | no | `./out` | Local storage root |
 | `SS_CONFIGS_DIR` | no | `./configs` | Repo-root configs/ (style presets, safety rules, rubrics) |

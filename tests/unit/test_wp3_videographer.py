@@ -13,6 +13,7 @@ from storysmith.models import (
     QAReport,
     QAVerdict,
     Scene,
+    SceneGenMode,
     SceneManifest,
     StyleContract,
     VideoProject,
@@ -71,7 +72,17 @@ class _CountingVideoGen:
 
 
 async def test_idempotent_skip_on_same_hash(settings_test: Settings) -> None:
-    scene = Scene(index=0, duration_s=8, video_prompt="soft 2D duck swims", narration="")
+    # gen_mode=t2v explicitly: this test is about a scene with no reference
+    # image (Amendment 01 defaults gen_mode to i2v, which would otherwise
+    # look up a scene still that doesn't exist here and still fall back to
+    # None -- explicit t2v keeps the "no reference image" intent unambiguous).
+    scene = Scene(
+        index=0,
+        duration_s=8,
+        video_prompt="soft 2D duck swims",
+        narration="",
+        gen_mode=SceneGenMode.T2V,
+    )
     manifest = SceneManifest(
         title="t",
         description="d",

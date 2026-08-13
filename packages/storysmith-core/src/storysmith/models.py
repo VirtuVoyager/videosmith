@@ -54,12 +54,25 @@ class MusicCue(BaseModel):
     end_s: float
 
 
+class SceneGenMode(StrEnum):
+    T2V = "t2v"
+    I2V = "i2v"
+
+
 class Scene(BaseModel):
     index: int
     duration_s: float = Field(ge=3, le=10)
     video_prompt: str  # style-injected, self-contained
     narration: str  # text spoken/sung over this scene ("" if none)
     transition: str = "crossfade"  # crossfade | cut
+    gen_mode: SceneGenMode = SceneGenMode.I2V
+    # Amendment 01: required when gen_mode == I2V -- a fully composed
+    # still-image prompt (exact camera framing, exact object/character
+    # placement, exact state) that scene_stills conditions video generation
+    # on as the start frame. Must NOT describe motion or time passing;
+    # video_prompt for an I2V scene must then describe ONLY motion within
+    # that fixed frame.
+    scene_image_prompt: str | None = None
 
 
 class SceneManifest(BaseModel):
@@ -74,6 +87,7 @@ class SceneManifest(BaseModel):
 
 class AssetKind(StrEnum):
     CHAR_IMAGE = "char_image"
+    SCENE_STILL = "scene_still"  # Amendment 01: i2v start-frame per scene
     SCENE_VIDEO = "scene_video"
     AUDIO_MASTER = "audio_master"
     FINAL_VIDEO = "final_video"
@@ -96,12 +110,19 @@ class QAVerdict(StrEnum):
     HUMAN_REVIEW = "human_review"
 
 
+class FailureLayer(StrEnum):
+    COMPOSITION = "composition"  # wrong layout/object placement -- regenerate the still first
+    MOTION = "motion"  # bad animation of an otherwise-correct frame -- regenerate video only
+    OTHER = "other"  # default; backward-compatible with pre-Amendment-01 QA reports
+
+
 class QAReport(BaseModel):
     scene_index: int | None  # None = audio or final-cut report
     verdict: QAVerdict
     scores: dict[str, float]  # rubric_criterion -> 0..1
     safety_flags: list[str]
     critique: str  # actionable critique used to augment retry prompt
+    failure_layer: FailureLayer = FailureLayer.OTHER
 
 
 class CostEntry(BaseModel):

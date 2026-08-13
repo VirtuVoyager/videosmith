@@ -27,3 +27,12 @@ Score each criterion from 0.0 (fails completely) to 1.0 (fully meets it).
 - `verdict`: your best assessment, but note the platform makes the final
   pass/retry/human-review call from your scores and safety_flags, not this
   field alone.
+- `failure_layer`: if you would recommend regenerating this scene, classify
+  *why*: "composition" if the frame itself is wrong (wrong layout, objects
+  in the wrong place, wrong camera framing, an object appearing that
+  shouldn't be there, spatial geometry that doesn't make sense), "motion" if
+  the frame's composition is fine and only the animation/movement within it
+  is wrong (bad motion, static artifacts, character not doing what the
+  motion prompt asked). Use "other" if neither applies or the scene passes.
+  This determines whether the platform regenerates the start frame or just
+  the video -- get it right.

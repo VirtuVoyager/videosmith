@@ -43,6 +43,20 @@ class Settings(BaseSettings):
     tts_model: str = "jaaari/kokoro-82m"  # Kokoro TTS on Replicate, for topical narration
     tts_voice: str = "af_bella"
     tts_voice_hi: str = ""
+    # Amendment 01: Director's default gen_mode when a scene isn't clearly
+    # geometry-light (threaded into the director prompt, not enforced in
+    # code -- the LLM still picks per-scene, this is just its starting bias).
+    default_scene_gen_mode: str = "i2v"  # i2v | t2v
+    # SPEC-GAP: flux-kontext-pro supports image-conditioned generation (the
+    # capability §6 of the amendment gates i2v-with-character-identity on),
+    # but wiring a second image adapter/port to actually use that
+    # conditioning is deferred -- scene_stills currently reuses `image_model`
+    # (flux-schnell, text-only) via the existing ImageGenPort, folding
+    # character appearance into the prompt text instead (the amendment's own
+    # documented fallback for text-only image adapters). This setting is
+    # accepted now so the config surface matches the amendment; unused until
+    # that adapter work lands.
+    scene_image_model: str = "black-forest-labs/flux-kontext-pro"
 
     # --- Storage ---
     storage_backend: str = "local"  # local | s3 | azure_blob

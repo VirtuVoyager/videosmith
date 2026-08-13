@@ -77,12 +77,14 @@ async def test_resume_from_checkpoint(settings_test: Settings) -> None:
         await pipeline.run(brief="counting ducks", mode=Mode.RHYME, project_id="wp1-resume")
 
     # creative_director + director each call the LLM once; char_refs calls
-    # image_gen once (one character). These nodes ran to completion and were
-    # checkpointed before videographer's internal failure.
+    # image_gen once (one character), then scene_stills calls it once more
+    # per i2v scene (5, all gen_mode defaults to i2v -- Amendment 01). These
+    # nodes ran to completion and were checkpointed before videographer's
+    # internal failure.
     llm_calls_before_resume = llm.calls
     image_calls_before_resume = image_gen.calls
     assert llm_calls_before_resume == 2
-    assert image_calls_before_resume == 1
+    assert image_calls_before_resume == 6
 
     result = await pipeline.run(brief="counting ducks", mode=Mode.RHYME, project_id="wp1-resume")
 

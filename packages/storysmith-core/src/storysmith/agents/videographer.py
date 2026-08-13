@@ -11,9 +11,11 @@ from storysmith.models import (
     ProjectStatus,
     QAVerdict,
     Scene,
+    SceneGenMode,
     VideoProject,
 )
 from storysmith.settings import Settings
+from storysmith.util.assets import latest_scene_still
 from storysmith.util.hashing import sha256_bytes, sha256_hex
 
 if TYPE_CHECKING:
@@ -46,17 +48,25 @@ def _latest_critique(state: VideoProject, scene_index: int) -> str | None:
     return None
 
 
-async def _reference_image(state: VideoProject, ports: PortBundle) -> bytes | None:
-    # SPEC-GAP: spec doesn't say which character to use as the video-gen
-    # reference when a StyleContract has two; using the first keeps every
-    # scene visually anchored to one consistent character today. Revisit if
-    # multi-character scene-specific reference selection is ever needed.
-    if state.style is None or not state.style.characters:
+async def _reference_image(scene: Scene, state: VideoProject, ports: PortBundle) -> bytes | None:
+    """Amendment 01: for an i2v scene, the video-gen reference is now that
+    scene's own composed still (start-frame conditioning), not a shared
+    character-reference image -- each scene gets its own fixed frame instead
+    of every scene anchoring to the same generic character portrait.
+
+    SPEC-GAP: if gen_mode==i2v but no still exists yet (shouldn't happen in
+    the real graph -- scene_stills always runs before videographer -- but is
+    reachable if this agent is invoked directly, e.g. in tests), this falls
+    back to None (a t2v-style call) rather than raising, since a missing
+    still isn't recoverable here and failing the whole scene generation over
+    it would be worse than just not conditioning on a start frame.
+    """
+    if scene.gen_mode != SceneGenMode.I2V:
         return None
-    image_uri = state.style.characters[0].image_uri
-    if image_uri is None:
+    still = latest_scene_still(state.assets, scene.index)
+    if still is None:
         return None
-    return await ports.storage.get(uri=image_uri)
+    return await ports.storage.get(uri=still.uri)
 
 
 async def _generate_one(
@@ -65,7 +75,6 @@ async def _generate_one(
     state: VideoProject,
     ports: PortBundle,
     settings: Settings,
-    reference_image: bytes | None,
     semaphore: asyncio.Semaphore,
 ) -> tuple[AssetRef | None, CostEntry | None]:
     assert state.style is not None
@@ -75,6 +84,7 @@ async def _generate_one(
     if critique:
         prompt = f"{prompt}\nAVOID THE FOLLOWING ISSUES: {critique}"
 
+    reference_image = await _reference_image(scene, state, ports)
     model_id = settings.video_model_i2v if reference_image is not None else settings.video_model_t2v
     ref_hash = sha256_bytes(reference_image) if reference_image is not None else ""
     content_hash = sha256_hex(model_id, prompt, str(scene.duration_s), ref_hash)
@@ -112,18 +122,10 @@ async def _generate_one(
 
 async def run(state: VideoProject, *, ports: PortBundle, settings: Settings) -> dict[str, Any]:
     scenes = _scenes_to_generate(state)
-    reference_image = await _reference_image(state, ports)
     semaphore = asyncio.Semaphore(_MAX_CONCURRENT_GENERATIONS)
     results = await asyncio.gather(
         *(
-            _generate_one(
-                scene,
-                state=state,
-                ports=ports,
-                settings=settings,
-                reference_image=reference_image,
-                semaphore=semaphore,
-            )
+            _generate_one(scene, state=state, ports=ports, settings=settings, semaphore=semaphore)
             for scene in scenes
         )
     )

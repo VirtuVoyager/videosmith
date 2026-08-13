@@ -10,6 +10,7 @@ from storysmith.agents import director as director_agent
 from storysmith.agents import editor as editor_agent
 from storysmith.agents import music_director as music_director_agent
 from storysmith.agents import publisher as publisher_agent
+from storysmith.agents import scene_stills as scene_stills_agent
 from storysmith.agents import videographer as videographer_agent
 from storysmith.models import (
     AssetKind,
@@ -86,6 +87,12 @@ async def char_refs(
         "assets": [asset for asset, _, _ in results],
         "cost_ledger": [entry for _, entry, _ in results],
     }
+
+
+async def scene_stills(
+    state: VideoProject, *, ports: PortBundle, settings: Settings
+) -> dict[str, Any]:
+    return await scene_stills_agent.run(state, ports=ports, settings=settings)
 
 
 async def videographer(
