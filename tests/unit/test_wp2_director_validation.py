@@ -11,6 +11,7 @@ from storysmith.models import (
     Mode,
     MusicCue,
     Scene,
+    SceneGenMode,
     SceneManifest,
     StyleContract,
     VideoProject,
@@ -44,8 +45,17 @@ def _style() -> StyleContract:
 
 
 def _manifest(*, scene_count: int, duration_s: float, video_prompt: str) -> SceneManifest:
+    # gen_mode=t2v: this test module is about scene-count/duration
+    # validation (pre-Amendment-01), not the amendment's i2v/scene_image_prompt
+    # rules -- t2v scenes skip that check entirely.
     scenes = [
-        Scene(index=i, duration_s=duration_s, video_prompt=video_prompt, narration="hi")
+        Scene(
+            index=i,
+            duration_s=duration_s,
+            video_prompt=video_prompt,
+            narration="hi",
+            gen_mode=SceneGenMode.T2V,
+        )
         for i in range(scene_count)
     ]
     return SceneManifest(

@@ -17,6 +17,6 @@ def test_prompt_loader_fills_placeholders() -> None:
 
 def test_prompt_loader_placeholders_raises_with_missing_name() -> None:
     with pytest.raises(KeyError) as exc_info:
-        prompts.load("director", brief="b", mode="rhyme", style_json="{}")
+        prompts.load("director", brief="b", mode="rhyme", style_json="{}", default_gen_mode="i2v")
 
     assert "violation_note" in str(exc_info.value)

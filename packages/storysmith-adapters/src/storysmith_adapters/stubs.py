@@ -134,11 +134,22 @@ def _canned_style_contract() -> StyleContract:
 
 
 def _canned_scene_manifest() -> SceneManifest:
+    # gen_mode defaults to i2v (Amendment 01) -- scene_image_prompt is
+    # required for those scenes, so the canned manifest carries one even
+    # though StubLLM bypasses director.py's post-validation that would
+    # otherwise enforce it.
     scenes = [
         Scene(
             index=i,
             duration_s=8,
-            video_prompt=f"soft 2D cutout animation, Ducky the yellow duck, scene {i}",
+            video_prompt=(
+                f"soft art style, the duck bobs its head up and down, "
+                f"camera remains static, scene {i}"
+            ),
+            scene_image_prompt=(
+                f"soft 2D cutout animation, Ducky the yellow duck centered in frame, "
+                f"plain background, scene {i}"
+            ),
             narration=f"one two three duck {i}",
         )
         for i in range(5)

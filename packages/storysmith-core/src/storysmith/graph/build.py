@@ -22,12 +22,14 @@ from storysmith.models import (
     AssetRef,
     CharacterRef,
     CostEntry,
+    FailureLayer,
     Mode,
     MusicCue,
     ProjectStatus,
     QAReport,
     QAVerdict,
     Scene,
+    SceneGenMode,
     SceneManifest,
     StyleContract,
     VideoProject,
@@ -45,10 +47,12 @@ _CHECKPOINT_ALLOWED_TYPES = [
     StyleContract,
     MusicCue,
     Scene,
+    SceneGenMode,
     SceneManifest,
     AssetKind,
     AssetRef,
     QAVerdict,
+    FailureLayer,
     QAReport,
     CostEntry,
 ]
@@ -149,9 +153,22 @@ def _critic_router(state: VideoProject) -> list[str]:
     if any(r.verdict == QAVerdict.HUMAN_REVIEW for r in state.qa_reports):
         return ["review_gate"]
 
+    scene_retries = [
+        r for r in state.qa_reports if r.verdict == QAVerdict.RETRY and r.scene_index is not None
+    ]
     destinations = []
-    if any(r.verdict == QAVerdict.RETRY and r.scene_index is not None for r in state.qa_reports):
-        destinations.append("videographer")
+    if scene_retries:
+        # Amendment 01 §5: a composition failure means the still itself is
+        # wrong (wrong layout/placement) -- regenerate that first via
+        # scene_stills, which always flows on to videographer next (fixed
+        # edge) so the video gets regenerated from the corrected frame too.
+        # A motion (or pre-amendment "other", for backward compatibility)
+        # failure means the frame was fine and only the animation was bad --
+        # skip straight to videographer, no need to touch the still.
+        if any(r.failure_layer == FailureLayer.COMPOSITION for r in scene_retries):
+            destinations.append("scene_stills")
+        else:
+            destinations.append("videographer")
     if any(r.verdict == QAVerdict.RETRY and r.scene_index is None for r in state.qa_reports):
         # scene_index=None + RETRY is the audio report (§6) -- route back to
         # music_director, not videographer, so a bad narration/lyrics take
@@ -214,6 +231,7 @@ def build_graph(
     graph.add_node("creative_director", bind(nodes.creative_director))
     graph.add_node("director", bind(nodes.director))
     graph.add_node("char_refs", bind(nodes.char_refs))
+    graph.add_node("scene_stills", bind(nodes.scene_stills, owns_status=False))
     graph.add_node("videographer", bind(nodes.videographer))
     graph.add_node("music_director", bind(nodes.music_director, owns_status=False))
     graph.add_node("critic", bind(nodes.critic))
@@ -224,14 +242,28 @@ def build_graph(
     graph.add_edge(START, "creative_director")
     graph.add_edge("creative_director", "director")
     graph.add_edge("director", "char_refs")
-    graph.add_edge("char_refs", "videographer")
-    graph.add_edge("char_refs", "music_director")
+    graph.add_edge("char_refs", "scene_stills")
+    # Amendment 01 §5: char_refs -> scene_stills -> videographer. music_director
+    # also runs after scene_stills (not directly off char_refs, despite the
+    # amendment's diagram) -- SPEC-GAP: LangGraph's fan-in join at `critic`
+    # isn't a true barrier across branches of different depth; it triggers as
+    # soon as any one predecessor edge is fresh, not once both are. With
+    # videographer two hops from char_refs (via scene_stills) and
+    # music_director one hop, critic used to fire the moment music_director
+    # finished, using a stale/absent videographer write and crashing with a
+    # concurrent "status" update once videographer caught up a step later.
+    # Routing music_director through scene_stills too re-equalizes both
+    # branches' depth to critic (matching the original char_refs-direct
+    # shape this graph always relied on for that join to work), at the minor
+    # cost of music_director starting one step later than before.
+    graph.add_edge("scene_stills", "videographer")
+    graph.add_edge("scene_stills", "music_director")
     graph.add_edge("videographer", "critic")
     graph.add_edge("music_director", "critic")
     graph.add_conditional_edges(
         "critic",
         _critic_router,
-        ["videographer", "music_director", "editor", "review_gate"],
+        ["scene_stills", "videographer", "music_director", "editor", "review_gate"],
     )
     graph.add_edge("editor", "review_gate")
     graph.add_edge("review_gate", "publisher")
