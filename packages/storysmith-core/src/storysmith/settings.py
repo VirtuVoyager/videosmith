@@ -36,7 +36,9 @@ class Settings(BaseSettings):
     video_model_t2v: str = "xai/grok-imagine-video"
     video_resolution: str = "480p"  # 480p | 720p -- 720p is a 2.5x cost multiplier
     image_model: str = "black-forest-labs/flux-schnell"
-    music_model: str = "lucataco/ace-step"  # rhyme mode: lyrics-driven full song
+    # lucataco/ace-step was removed from Replicate; fishaudio/ace-step-1.5 is
+    # its current replacement (same underlying ACE-Step model).
+    music_model: str = "fishaudio/ace-step-1.5"  # rhyme mode: lyrics-driven full song
     music_model_instrumental: str = "meta/musicgen"  # topical mode: instrumental bed
     tts_model: str = "jaaari/kokoro-82m"  # Kokoro TTS on Replicate, for topical narration
     tts_voice: str = "af_bella"

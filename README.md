@@ -86,7 +86,7 @@ the spec here._
 | `SS_VIDEO_MODEL_T2V` | no | `xai/grok-imagine-video` | Text-to-video model id |
 | `SS_VIDEO_RESOLUTION` | no | `480p` | `480p` \| `720p` -- 720p is a 2.5x cost multiplier |
 | `SS_IMAGE_MODEL` | no | `black-forest-labs/flux-schnell` | Character ref image model id |
-| `SS_MUSIC_MODEL` | no | `lucataco/ace-step` | Rhyme-mode music model id (lyrics-driven full song) |
+| `SS_MUSIC_MODEL` | no | `fishaudio/ace-step-1.5` | Rhyme-mode music model id (lyrics-driven full song) |
 | `SS_MUSIC_MODEL_INSTRUMENTAL` | no | `meta/musicgen` | Topical-mode music model id (instrumental bed) |
 | `SS_TTS_MODEL` | no | `jaaari/kokoro-82m` | Kokoro TTS model id on Replicate |
 | `SS_TTS_VOICE` | no | `af_bella` | Kokoro TTS voice id |
