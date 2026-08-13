@@ -7,6 +7,7 @@ import groq
 from pydantic import BaseModel, ValidationError
 from storysmith.errors import LLMStructuredOutputError, TransientError
 from storysmith.settings import Settings
+from storysmith.util.llm_schema import strict_tool_schema
 from storysmith.util.retry import with_retries
 
 # USD per million tokens: (input, output). Left at 0.0 by default -- Groq's
@@ -63,7 +64,7 @@ class GroqLLM:
             "function": {
                 "name": "emit",
                 "description": f"Emit a valid {schema.__name__}.",
-                "parameters": schema.model_json_schema(),
+                "parameters": strict_tool_schema(schema.model_json_schema()),
             },
         }
         messages: list[dict[str, object]] = [
@@ -78,6 +79,15 @@ class GroqLLM:
                     messages=msgs,  # type: ignore[arg-type]
                     tools=[tool],  # type: ignore[list-item]
                     tool_choice={"type": "function", "function": {"name": "emit"}},
+                    # No explicit cap previously -- large schemas (e.g.
+                    # SceneManifest with a scene_image_prompt + video_prompt
+                    # per scene) risk the completion getting cut off mid-JSON
+                    # under whatever provider default applies, which then
+                    # fails tool-call schema validation server-side with no
+                    # obvious "truncated" signal. Generous headroom, not
+                    # tuned tightly -- cost is billed by actual tokens used,
+                    # not this ceiling.
+                    max_completion_tokens=8192,
                 )
             except _TRANSIENT_EXCEPTIONS as exc:
                 raise TransientError(str(exc)) from exc
