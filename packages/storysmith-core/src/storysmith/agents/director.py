@@ -100,12 +100,6 @@ def _significant_words(text: str) -> set[str]:
 
 def _scene_violations(scene: Scene, style_words: list[str]) -> list[str]:
     violations: list[str] = []
-    prompt_lower = scene.video_prompt.lower()
-    if style_words and not any(word in prompt_lower for word in style_words):
-        violations.append(
-            f"scene {scene.index} video_prompt doesn't restate the art style: "
-            f"{scene.video_prompt!r}"
-        )
 
     if scene.gen_mode == SceneGenMode.I2V:
         if not scene.scene_image_prompt or not scene.scene_image_prompt.strip():
@@ -114,6 +108,22 @@ def _scene_violations(scene: Scene, style_words: list[str]) -> list[str]:
                 "-- every i2v scene needs a complete static composition prompt"
             )
         else:
+            # §2.2's art-style-restatement rule exists because a t2v video
+            # model gets nothing but video_prompt as context. An i2v scene's
+            # model also sees the composed still (which scene_image_prompt
+            # already restates the art style into) -- amendment §4
+            # deliberately tells video_prompt to describe motion only, not
+            # style/layout, so checking style words against video_prompt
+            # alone would fight that instruction. Check the combined text
+            # instead: the style still has to appear *somewhere* in the two
+            # prompts together, just not necessarily in video_prompt itself.
+            combined_lower = f"{scene.scene_image_prompt} {scene.video_prompt}".lower()
+            if style_words and not any(word in combined_lower for word in style_words):
+                violations.append(
+                    f"scene {scene.index}'s scene_image_prompt/video_prompt together "
+                    f"don't restate the art style: {scene.scene_image_prompt!r} / "
+                    f"{scene.video_prompt!r}"
+                )
             image_words = _significant_words(scene.scene_image_prompt)
             motion_words = _significant_words(scene.video_prompt)
             overlap = image_words & motion_words
@@ -123,6 +133,15 @@ def _scene_violations(scene: Scene, style_words: list[str]) -> list[str]:
                     f"already fixed by scene_image_prompt ({sorted(overlap)}) -- "
                     "video_prompt must describe motion only, not layout"
                 )
+    else:
+        # t2v: video_prompt is the scene's only prompt, so §2.2's original
+        # rule applies unchanged -- it must restate the art style itself.
+        prompt_lower = scene.video_prompt.lower()
+        if style_words and not any(word in prompt_lower for word in style_words):
+            violations.append(
+                f"scene {scene.index} video_prompt doesn't restate the art style: "
+                f"{scene.video_prompt!r}"
+            )
     return violations
 
 

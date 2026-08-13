@@ -6,6 +6,7 @@ import anthropic
 from pydantic import BaseModel, ValidationError
 from storysmith.errors import LLMStructuredOutputError, TransientError
 from storysmith.settings import Settings
+from storysmith.util.llm_schema import strict_tool_schema
 from storysmith.util.retry import with_retries
 
 # USD per million tokens: (input, output). Update freely as pricing changes (§2.1).
@@ -63,7 +64,7 @@ class AnthropicLLM:
         tool: anthropic.types.ToolParam = {
             "name": "emit",
             "description": f"Emit a valid {schema.__name__}.",
-            "input_schema": schema.model_json_schema(),
+            "input_schema": strict_tool_schema(schema.model_json_schema()),
         }
         messages: list[anthropic.types.MessageParam] = [{"role": "user", "content": content}]
 
