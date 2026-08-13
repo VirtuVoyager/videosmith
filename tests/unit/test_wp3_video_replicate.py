@@ -118,6 +118,41 @@ async def test_content_rejected_not_retried(settings_video: Settings) -> None:
         assert submit_route.call_count == 1  # not retried
 
 
+async def test_regression_download_does_not_leak_replicate_auth_header(
+    settings_video: Settings,
+) -> None:
+    """Prediction outputs are served from a presigned storage URL (S3/R2)
+    that carries its own auth in the query string -- forwarding the client's
+    `Authorization: Bearer <replicate_token>` header there breaks presigned-
+    URL signature validation (a real 400 hit live: the same reused httpx
+    client was sending its default header to a Cloudflare R2 URL)."""
+    gen = ReplicateVideoGen(settings_video)
+    with respx.mock(base_url=_BASE) as mock:
+        mock.post(f"/models/{_T2V_MODEL}/predictions").mock(
+            return_value=httpx.Response(201, json={"id": "p5", "status": "starting"})
+        )
+        mock.get("/predictions/p5").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "id": "p5",
+                    "status": "succeeded",
+                    "output": ["https://cdn.example.com/v5.mp4"],
+                },
+            )
+        )
+        download_route = mock.get("https://cdn.example.com/v5.mp4").mock(
+            return_value=httpx.Response(200, content=b"V5")
+        )
+
+        await gen.generate(
+            prompt="a duck swims", duration_s=5.0, aspect_ratio="9:16", reference_image=None
+        )
+
+        assert download_route.call_count == 1
+        assert "authorization" not in download_route.calls[0].request.headers
+
+
 async def test_i2v_model_selected_when_reference_image_present(settings_video: Settings) -> None:
     gen = ReplicateVideoGen(settings_video)
     with respx.mock(base_url=_BASE) as mock:

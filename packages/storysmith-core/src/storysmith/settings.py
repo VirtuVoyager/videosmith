@@ -36,7 +36,9 @@ class Settings(BaseSettings):
     video_model_t2v: str = "xai/grok-imagine-video"
     video_resolution: str = "480p"  # 480p | 720p -- 720p is a 2.5x cost multiplier
     image_model: str = "black-forest-labs/flux-schnell"
-    music_model: str = "lucataco/ace-step"  # rhyme mode: lyrics-driven full song
+    # lucataco/ace-step was removed from Replicate; fishaudio/ace-step-1.5 is
+    # its current replacement (same underlying ACE-Step model).
+    music_model: str = "fishaudio/ace-step-1.5"  # rhyme mode: lyrics-driven full song
     music_model_instrumental: str = "meta/musicgen"  # topical mode: instrumental bed
     tts_model: str = "jaaari/kokoro-82m"  # Kokoro TTS on Replicate, for topical narration
     tts_voice: str = "af_bella"
@@ -52,10 +54,17 @@ class Settings(BaseSettings):
     azure_blob_container: str = "storysmith"
 
     # --- Database ---
-    db_url: str = ""  # empty = MemorySaver, no persistence
+    # empty = MemorySaver checkpointing, no cost-ledger persistence (in-process
+    # only, no cross-run resume). postgresql+psycopg://user:pass@host:5432/db
+    # enables both AsyncPostgresSaver checkpointing and the cost_entries table.
+    db_url: str = ""
 
     # --- Budget & runtime ---
     budget_cap_usd: float = 12.0
+    # Cross-run cap, checked against cost_entries before a new run starts
+    # (§ Replicate spend controls) -- 0 disables the check. Requires db_url;
+    # budget_cap_usd alone only guards a single run's own spend.
+    daily_budget_cap_usd: float = 0.0
     debug: bool = False  # SS_DEBUG=1 => debugpy wait-for-client in container
     skip_ffmpeg: bool = False  # SS_SKIP_FFMPEG=1 => skip ffmpeg-dependent tests (§5)
 
@@ -63,8 +72,17 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
     api_bearer_token: str = ""
+    # review_gate's Telegram message links here (§7's "approve/reject deep
+    # links") -- the UI page holds the bearer token client-side and calls the
+    # API's approve/reject endpoints, since a bare Telegram link can't carry
+    # an Authorization header.
+    console_base_url: str = "http://localhost:3000"
     youtube_client_secrets_path: str = "./secrets/yt_client.json"
+    # Written by scripts/youtube_auth.py's one-time OAuth flow; read (and
+    # refreshed in place) by publish_youtube.py on every upload.
+    youtube_token_path: str = "./secrets/yt_token.json"
 
     # --- Observability ---
     opik_enabled: bool = False
     opik_api_key: str = ""
+    opik_url: str = "http://localhost:5173/api"  # self-hosted local Opik instance

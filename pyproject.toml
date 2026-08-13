@@ -48,7 +48,15 @@ markers = [
     "wp8: WP8 observability + cost ledger + ops",
     "slow: slow-running tests excluded from default CI run",
 ]
-addopts = "--ignore=tests/llm"
+addopts = "--ignore=tests/llm -p no:deepeval"
+# -p no:deepeval: deepeval registers a pytest11 plugin, so plain top-level
+# `pytest`/`uv run pytest` auto-imports deepeval/__init__.py regardless of
+# --ignore=tests/llm -- and that import unconditionally calls
+# autoload_dotenv(), dumping the *entire* .env file (not just SS_-prefixed
+# keys, and not scoped by any settings_test(_env_file=None) override) into
+# os.environ for the whole pytest session. tests/llm's own real deepeval
+# runs go through `uv run deepeval test run tests/llm` (a separate CLI),
+# not pytest, so disabling the plugin here doesn't affect it.
 
 [tool.coverage.run]
 source = ["packages/storysmith-core/src/storysmith"]

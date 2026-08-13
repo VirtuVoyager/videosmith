@@ -31,7 +31,7 @@ def settings_music() -> Settings:
     return Settings(
         _env_file=None,
         replicate_api_token="tok",
-        music_model="lucataco/ace-step",
+        music_model="fishaudio/ace-step-1.5",
         music_model_instrumental="meta/musicgen",
         tts_model="jaaari/kokoro-82m",
     )
@@ -40,7 +40,7 @@ def settings_music() -> Settings:
 async def test_music_replicate_poller_reuse_rhyme(settings_music: Settings) -> None:
     gen = ReplicateMusicGen(settings_music)
     with respx.mock(base_url=_BASE) as mock:
-        mock.post("/models/lucataco/ace-step/predictions").mock(
+        mock.post("/models/fishaudio/ace-step-1.5/predictions").mock(
             return_value=httpx.Response(201, json={"id": "m1", "status": "starting"})
         )
         mock.get("/predictions/m1").mock(

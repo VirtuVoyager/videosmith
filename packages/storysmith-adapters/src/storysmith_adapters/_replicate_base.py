@@ -51,7 +51,7 @@ class ReplicatePoller:
             prediction = await with_retries(lambda: self._submit(client, model, input_payload))
             prediction = await with_retries(lambda: self._poll_until_done(client, prediction["id"]))
             output_url = self._extract_output_url(prediction)
-            output_bytes = await self._download(client, output_url)
+            output_bytes = await self._download(output_url)
         return prediction, output_bytes
 
     async def _submit(
@@ -101,7 +101,15 @@ class ReplicatePoller:
         return str(output)
 
     @staticmethod
-    async def _download(client: httpx.AsyncClient, url: str) -> bytes:
-        resp = await client.get(url)
-        resp.raise_for_status()
-        return resp.content
+    async def _download(url: str) -> bytes:
+        # Not a Replicate API call -- prediction outputs are served from a
+        # presigned storage URL (S3/R2) that already carries its own auth in
+        # the query string. Reusing the Replicate-authenticated client would
+        # attach its default `Authorization: Bearer <replicate_token>` header
+        # to this request too, which presigned URLs reject (400: signature/
+        # auth mismatch), since presigned auth is meant to be the only auth
+        # on the request.
+        async with httpx.AsyncClient() as download_client:
+            resp = await download_client.get(url)
+            resp.raise_for_status()
+            return resp.content

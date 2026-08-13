@@ -36,7 +36,7 @@ class ReplicateMusicGen:
         payload: dict[str, Any]
         if mode == Mode.RHYME:
             model = self._model_rhyme
-            payload = {"lyrics": lyrics or "", "tags": description, "duration": duration}
+            payload = {"lyrics": lyrics or "", "prompt": description, "duration": duration}
         else:
             model = self._model_topical
             payload = {"prompt": description, "duration": duration}

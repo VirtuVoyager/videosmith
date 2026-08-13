@@ -108,21 +108,38 @@ async def editor(state: VideoProject, *, ports: PortBundle, settings: Settings) 
     return await editor_agent.run(state, ports=ports, settings=settings)
 
 
+def _latest_final_video(assets: list[AssetRef]) -> AssetRef | None:
+    candidates = [a for a in assets if a.kind == AssetKind.FINAL_VIDEO]
+    return max(candidates, key=lambda a: a.attempt, default=None)
+
+
 async def review_gate(
     state: VideoProject, *, ports: PortBundle, settings: Settings
 ) -> dict[str, Any]:
-    # SPEC-GAP: real Telegram approve/reject deep-link message body (§7) is
-    # WP7 scope; this just flags REVIEW and sends a notification so the
-    # graph has somewhere to interrupt (interrupt_before=["publisher"]).
+    # §7: notify with title, cost, QA summary, presigned video URL (when a
+    # final cut exists -- critic can route straight here on HUMAN_REVIEW
+    # before editor ever runs, so there may only be scene-level assets), and
+    # an approve/reject deep link into the UI console (which holds the
+    # bearer token and calls the API -- a bare Telegram link can't).
+    title = state.manifest.title if state.manifest else state.brief
     escalations = [r for r in state.qa_reports if r.verdict == QAVerdict.HUMAN_REVIEW]
     if escalations:
         flagged = ", ".join(
             "audio" if r.scene_index is None else f"scene {r.scene_index}" for r in escalations
         )
-        text = f"Project {state.project_id} needs human review -- flagged: {flagged}"
+        headline = f'"{title}" needs human review -- flagged: {flagged}'
     else:
-        text = f"Project {state.project_id} passed QA, ready for review"
-    await ports.notify.send(text=text, link=None)
+        headline = f'"{title}" passed QA, ready for review'
+
+    final_video = _latest_final_video(state.assets)
+    video_line = ""
+    if final_video is not None:
+        presigned = await ports.storage.presign(uri=final_video.uri)
+        video_line = f"\nVideo: {presigned}"
+
+    text = f"{headline}\nCost so far: ${state.total_cost:.2f}{video_line}"
+    review_link = f"{settings.console_base_url}/p/{state.project_id}"
+    await ports.notify.send(text=text, link=review_link)
     return {"status": ProjectStatus.REVIEW}
 
 
