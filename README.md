@@ -50,15 +50,34 @@ Without `SS_DB_URL` set, the pipeline still runs (using an in-process `MemorySav
 killed process loses all checkpoint state and the next run starts from scratch.
 
 To run the review console (needs `SS_DB_URL` -- it reads the `projects` snapshot table and
-resumes checkpoints):
+resumes checkpoints), either locally:
 
 ```bash
 uv run uvicorn api.main:app --reload --port 8000   # apps/api
 cd apps/ui && npm install && npm run dev            # apps/ui, http://localhost:3000
 ```
 
+...or fully containerized (OrbStack/Docker Desktop -- both apps/api and apps/ui ship
+Dockerfiles, wired into `docker-compose.yml` alongside `postgres`):
+
+```bash
+docker compose up -d --build
+```
+
+This brings up Postgres, the API on `http://localhost:8000`, and the UI on
+`http://localhost:3000` together. The API container loads `.env` for provider keys but
+overrides `SS_DB_URL` to reach the `postgres` service by its container-network hostname
+(not `localhost`), and `./out` (local storage) and `./secrets` (YouTube OAuth files) are
+bind-mounted in, not baked into the image -- so a project's assets are readable both from
+a container run and a host-side `uv run storysmith run --resume <id>` against the same
+directory. `NEXT_PUBLIC_API_BASE_URL` is baked into the UI's client bundle at *build* time
+(`docker compose build ui`), since it's fetched from the browser, not container-to-container
+-- rebuild the `ui` image if that URL needs to change.
+
 The UI asks for the API bearer token once (stored in the browser's localStorage) and talks
-directly to the API on `NEXT_PUBLIC_API_BASE_URL` (default `http://localhost:8000`).
+directly to the API on `NEXT_PUBLIC_API_BASE_URL` (default `http://localhost:8000`). The
+home page's "Start a new video" form calls `POST /runs` directly -- the same real,
+money-spending pipeline the CLI runs, just triggered from a browser instead of a terminal.
 
 ## Architecture
 

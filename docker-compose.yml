@@ -15,5 +15,42 @@ services:
       timeout: 5s
       retries: 10
 
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    env_file: .env
+    environment:
+      # Container-network overrides for values .env sets for host-side use --
+      # env_file loads everything else (provider keys, tokens) unchanged.
+      SS_DB_URL: postgresql+psycopg://storysmith:storysmith@postgres:5432/storysmith
+      SS_OUTPUT_DIR: /app/out
+      SS_YOUTUBE_CLIENT_SECRETS_PATH: /app/secrets/yt_client.json
+      SS_YOUTUBE_TOKEN_PATH: /app/secrets/yt_token.json
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./secrets:/app/secrets
+      # Bind mount, not a named volume: LocalStorage now stores relative
+      # keys (local://{key}), so a host-side `storysmith run --resume` and
+      # this container reading/writing the *same* physical ./out directory
+      # is what makes a project startable in one place and resumable in the
+      # other actually work.
+      - ./out:/app/out
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  ui:
+    build:
+      context: apps/ui
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
 volumes:
   storysmith_postgres_data:

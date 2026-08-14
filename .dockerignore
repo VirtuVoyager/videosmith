@@ -1,0 +1,15 @@
+.venv
+__pycache__
+*.pyc
+.git
+.pytest_cache
+.mypy_cache
+.ruff_cache
+htmlcov
+.coverage
+out
+apps/ui/node_modules
+apps/ui/.next
+secrets
+.env
+.env.test
