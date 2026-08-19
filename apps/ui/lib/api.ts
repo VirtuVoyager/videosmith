@@ -44,3 +44,17 @@ export async function rejectProject(token: string, projectId: string): Promise<P
   if (!res.ok) throw new Error(`reject failed: ${res.status}`);
   return res.json();
 }
+
+export async function triggerRun(
+  token: string,
+  brief: string,
+  mode: "rhyme" | "topical",
+): Promise<{ project_id: string }> {
+  const res = await fetch(`${API_BASE}/runs`, {
+    method: "POST",
+    headers: { ...authHeaders(token), "Content-Type": "application/json" },
+    body: JSON.stringify({ brief, mode }),
+  });
+  if (!res.ok) throw new Error(`trigger run failed: ${res.status}`);
+  return res.json();
+}

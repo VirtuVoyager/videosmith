@@ -58,9 +58,29 @@ class ReplicatePoller:
         self, client: httpx.AsyncClient, model: str, input_payload: dict[str, Any]
     ) -> dict[str, Any]:
         resp = await client.post(f"/models/{model}/predictions", json={"input": input_payload})
+        if resp.status_code == 404:
+            # Not every model exposes the /models/{owner}/{name}/predictions
+            # shorthand -- hit live for fishaudio/ace-step-1.5 (model exists,
+            # GET /models/{model} succeeds, but this endpoint 404s). The
+            # generic /predictions endpoint (pinned to a resolved version)
+            # works for every model, so fall back to it instead of failing
+            # the whole call over what's really just an API-shape mismatch.
+            version = await self._resolve_latest_version(client, model)
+            resp = await client.post(
+                "/predictions", json={"version": version, "input": input_payload}
+            )
         self._raise_for_transient(resp)
         resp.raise_for_status()
         return dict(resp.json())
+
+    @staticmethod
+    async def _resolve_latest_version(client: httpx.AsyncClient, model: str) -> str:
+        resp = await client.get(f"/models/{model}")
+        resp.raise_for_status()
+        version = resp.json().get("latest_version", {}).get("id")
+        if not version:
+            raise TransientError(f"model {model!r} has no latest_version to resolve")
+        return str(version)
 
     async def _poll_until_done(
         self, client: httpx.AsyncClient, prediction_id: str

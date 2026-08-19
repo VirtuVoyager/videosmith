@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 import respx
@@ -151,6 +153,42 @@ async def test_regression_download_does_not_leak_replicate_auth_header(
 
         assert download_route.call_count == 1
         assert "authorization" not in download_route.calls[0].request.headers
+
+
+async def test_regression_falls_back_to_versioned_predictions_on_404(
+    settings_video: Settings,
+) -> None:
+    """Some models don't expose the /models/{owner}/{name}/predictions
+    shorthand (hit live: fishaudio/ace-step-1.5 -- model exists, GET
+    /models/{model} succeeds, but POST .../predictions 404s). Must fall back
+    to resolving the model's latest_version and using the generic
+    /predictions endpoint instead of failing the whole call."""
+    gen = ReplicateVideoGen(settings_video)
+    with respx.mock(base_url=_BASE) as mock:
+        mock.post(f"/models/{_T2V_MODEL}/predictions").mock(
+            return_value=httpx.Response(404, json={"detail": "not found"})
+        )
+        mock.get(f"/models/{_T2V_MODEL}").mock(
+            return_value=httpx.Response(200, json={"latest_version": {"id": "v-abc123"}})
+        )
+        predictions_route = mock.post("/predictions").mock(
+            return_value=httpx.Response(201, json={"id": "p6", "status": "starting"})
+        )
+        mock.get("/predictions/p6").mock(
+            return_value=httpx.Response(
+                200,
+                json={"id": "p6", "status": "succeeded", "output": ["https://example.com/v6.mp4"]},
+            )
+        )
+        mock.get("https://example.com/v6.mp4").mock(return_value=httpx.Response(200, content=b"V6"))
+
+        data, _ = await gen.generate(
+            prompt="a duck swims", duration_s=5.0, aspect_ratio="9:16", reference_image=None
+        )
+
+        assert data == b"V6"
+        sent = json.loads(predictions_route.calls[0].request.content)
+        assert sent["version"] == "v-abc123"
 
 
 async def test_i2v_model_selected_when_reference_image_present(settings_video: Settings) -> None:
