@@ -58,6 +58,26 @@ AsyncPostgresSaver. Kill the process mid-run and `storysmith run --resume <id>`
 continues from the last completed node. Already-generated scenes are not
 regenerated, so a crash does not re-spend money.
 
+### Built for recurring casts
+
+A show is a cast frozen once and reused forever: describe each character's
+appearance, personality, and voice through the UI (or `POST /shows`), their
+avatars generate and lock in immediately, and every future episode loads that
+exact cast instead of inventing a new one — Creative Director and Character
+Refs both skip (zero cost) once a project's style already has every
+character's portrait. Scenes can carry speaker-attributed `dialogue` instead
+of single-voice narration; Music Director synthesizes each line in its
+speaker's own voice and stitches them into one clip before anything
+downstream (Editor, timing map) ever sees it — nothing else in the pipeline
+needs to know a scene had more than one voice.
+
+```bash
+# once, per show:
+curl -X POST localhost:8000/shows -H "Authorization: Bearer $SS_API_BEARER_TOKEN" -d '{...}'
+# every episode after that:
+uv run storysmith run --show-id bob-and-miko --brief "Bob won't share the couch" --mode topical
+```
+
 ### Built to not bankrupt you
 
 Every provider call writes a cost entry to Postgres. A per-run cap is checked
@@ -176,8 +196,8 @@ cd apps/ui && npm run gen-api-types
 | `SS_ANTHROPIC_MODEL_STANDARD` | no | `claude-sonnet-4-6` | Standard-tier Anthropic model id |
 | `SS_ANTHROPIC_MODEL_VISION` | no | `claude-sonnet-4-6` | Vision-tier Anthropic model id |
 | `SS_GROQ_API_KEY` | yes (if groq) | — | Groq API key |
-| `SS_GROQ_MODEL_STANDARD` | no | `llama-3.3-70b-versatile` | Standard-tier Groq model id |
-| `SS_GROQ_MODEL_VISION` | no | `llama-3.2-90b-vision-preview` | Vision-tier Groq model id |
+| `SS_GROQ_MODEL_STANDARD` | no | `openai/gpt-oss-120b` | Standard-tier Groq model id -- Groq's Llama lineup (this project's original default) was fully removed at some point; verify current availability via `GET /openai/v1/models` before relying on this |
+| `SS_GROQ_MODEL_VISION` | no | `openai/gpt-oss-120b` | Vision-tier Groq model id -- no vision-capable model was found in Groq's lineup as of writing; use `SS_LLM_PROVIDER=anthropic` if Critic's vision calls need to stay reliable |
 | `SS_AZURE_OPENAI_ENDPOINT` | yes (if azure) | — | Azure OpenAI resource endpoint |
 | `SS_AZURE_OPENAI_API_KEY` | yes (if azure) | — | Azure OpenAI API key |
 | `SS_AZURE_OPENAI_DEPLOYMENT_STANDARD` | yes (if azure) | — | Standard-tier deployment name |
@@ -243,7 +263,8 @@ uv run python scripts/smoke_live.py
 Built spec-first: [HANDOFF_SPEC.md](HANDOFF_SPEC.md) is the frozen original
 design, with changes layered as numbered amendments
 ([Amendment 01](HANDOFF_SPEC_AMENDMENT_01_scene_composition.md) added
-stills-first scene composition).
+stills-first scene composition, [Amendment 02](HANDOFF_SPEC_AMENDMENT_02_show_character_library.md)
+added user-authored show casts and multi-character dialogue).
 
 ## License
 

@@ -14,7 +14,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from storysmith import db
 from storysmith.errors import BudgetExceededError
 from storysmith.graph.build import build_graph, memory_checkpointer, postgres_checkpointer_context
-from storysmith.models import Mode, VideoProject
+from storysmith.models import Mode, ProjectStatus, StyleContract, VideoProject
 from storysmith.ports import (
     ImageGenPort,
     LLMPort,
@@ -65,7 +65,13 @@ class Pipeline:
 
         return cls(settings=settings, ports=stub_port_bundle())
 
-    async def run(self, brief: str, mode: Mode, project_id: str | None = None) -> VideoProject:
+    async def run(
+        self,
+        brief: str,
+        mode: Mode,
+        project_id: str | None = None,
+        show_id: str | None = None,
+    ) -> VideoProject:
         project_id = project_id or str(uuid.uuid4())
         config = RunnableConfig(configurable={"thread_id": project_id})
 
@@ -107,12 +113,35 @@ class Pipeline:
                     log.info("run_resuming")
                     result = await graph.ainvoke(None, config=config)
                 else:
-                    log.info("run_starting", mode=mode, brief=brief)
+                    log.info("run_starting", mode=mode, brief=brief, show_id=show_id)
+                    style: StyleContract | None = None
+                    status = ProjectStatus.CREATED
+                    if show_id is not None:
+                        # Amendment 02: a show's cast + StyleContract is
+                        # user-authored and frozen at POST /shows time --
+                        # load it directly rather than letting
+                        # creative_director invent a fresh one. Failing
+                        # loudly on a missing show_id (rather than silently
+                        # falling back to auto-generation) matters here: the
+                        # whole point is reusing *this* cast, not a random
+                        # new one.
+                        if not self.settings.db_url:
+                            raise ValueError(
+                                "show_id requires SS_DB_URL to be set (shows are Postgres-only)"
+                            )
+                        show = await db.load_show(self.settings.db_url, show_id=show_id)
+                        if show is None:
+                            raise ValueError(f"no show found with show_id={show_id!r}")
+                        style = StyleContract.model_validate_json(show.style_json)
+                        status = ProjectStatus.STYLED
                     initial = VideoProject(
                         project_id=project_id,
                         mode=mode,
                         brief=brief,
                         budget_cap_usd=self.settings.budget_cap_usd,
+                        show_id=show_id,
+                        style=style,
+                        status=status,
                     )
                     result = await graph.ainvoke(initial, config=config)
             except Exception:

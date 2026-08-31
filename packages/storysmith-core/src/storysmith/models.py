@@ -33,6 +33,12 @@ class CharacterRef(BaseModel):
     name: str
     description: str  # visual description used in every scene prompt
     image_uri: str | None = None  # storage URI of reference still
+    # Amendment 02: behavioral/voice guidance for the Director (comedic
+    # timing, quirks) -- kept separate from `description`, which stays
+    # purely visual since that's what feeds image-generation prompts and
+    # personality text would only confuse those.
+    personality: str = ""
+    voice_id: str | None = None  # TTS voice id; falls back to settings.tts_voice when unset
 
 
 class StyleContract(BaseModel):
@@ -59,6 +65,11 @@ class SceneGenMode(StrEnum):
     I2V = "i2v"
 
 
+class DialogueLine(BaseModel):
+    speaker: str  # must match a StyleContract.characters[].name
+    line: str
+
+
 class Scene(BaseModel):
     index: int
     duration_s: float = Field(ge=3, le=10)
@@ -73,6 +84,12 @@ class Scene(BaseModel):
     # video_prompt for an I2V scene must then describe ONLY motion within
     # that fixed frame.
     scene_image_prompt: str | None = None
+    # Amendment 02: speaker-attributed back-and-forth for a multi-character
+    # cast. When set, music_director synthesizes and concatenates each line
+    # with its speaker's own voice instead of using `narration` -- see
+    # music_director.py's _run_topical. None preserves today's single-voice
+    # narration behavior exactly.
+    dialogue: list[DialogueLine] | None = None
 
 
 class SceneManifest(BaseModel):
@@ -160,6 +177,11 @@ class VideoProject(BaseModel):
     # how every other post-WP1 field addition in this codebase (llm_provider,
     # video_resolution, etc.) has been handled.
     published_url: str | None = None
+    # Amendment 02: set when this project belongs to a persistent show (a
+    # frozen cast + StyleContract, created via POST /shows and loaded by
+    # Pipeline.run() rather than generated fresh -- see creative_director.py
+    # and graph/nodes.py::char_refs's skip-when-already-set guards).
+    show_id: str | None = None
 
     @property
     def total_cost(self) -> float:

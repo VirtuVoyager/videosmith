@@ -21,6 +21,7 @@ from storysmith.models import (
     VideoProject,
 )
 from storysmith.settings import Settings
+from storysmith.util.character_prompts import CHAR_REF_ASPECT_RATIO, build_char_ref_prompt
 from storysmith.util.hashing import sha256_bytes
 
 if TYPE_CHECKING:
@@ -48,14 +49,18 @@ async def char_refs(
     assert state.style is not None
     style = state.style
 
+    # Amendment 02: a show's cast is frozen at POST /shows time -- every
+    # character already has an image_uri, so there's nothing to (re)generate
+    # for a per-episode run against that show. Regenerating here would both
+    # waste money and silently drift the cast's look episode to episode.
+    if style.characters and all(c.image_uri for c in style.characters):
+        return {}
+
     async def _generate_one(index: int) -> tuple[AssetRef, CostEntry, str]:
         character = style.characters[index]
-        prompt = (
-            f"{character.description}, {style.art_style}, character reference sheet, "
-            "full body, neutral pose, plain background"
-        )
+        prompt = build_char_ref_prompt(character, style.art_style)
         image_bytes, cost = await ports.image_gen.generate(
-            prompt=prompt, aspect_ratio=style.aspect_ratio
+            prompt=prompt, aspect_ratio=CHAR_REF_ASPECT_RATIO
         )
         uri = await ports.storage.put(
             key=f"{state.project_id}/char_{character.name}.png",

@@ -18,8 +18,18 @@ class Settings(BaseSettings):
     # useful for zero-cost development before switching llm_provider back to
     # anthropic once the system is stable.
     groq_api_key: str = ""
-    groq_model_standard: str = "llama-3.3-70b-versatile"
-    groq_model_vision: str = "llama-3.2-90b-vision-preview"
+    # llama-3.3-70b-versatile / llama-3.2-90b-vision-preview (this project's
+    # original defaults) were both fully removed from Groq's lineup at some
+    # point -- confirmed live via GET /openai/v1/models, no llama chat model
+    # remains at all, only meta-llama/llama-prompt-guard-2-* (safety
+    # classifiers, not general chat). openai/gpt-oss-120b is Groq's current
+    # closest equivalent for the standard tier.
+    # SPEC-GAP: no vision-capable model was found in Groq's current lineup
+    # (GET /openai/v1/models) at all -- if Critic's vision-tier calls need to
+    # stay reliable, set SS_LLM_PROVIDER=anthropic instead of chasing a Groq
+    # vision replacement here.
+    groq_model_standard: str = "openai/gpt-oss-120b"
+    groq_model_vision: str = "openai/gpt-oss-120b"
     azure_openai_endpoint: str = ""
     azure_openai_api_key: str = ""
     azure_openai_deployment_standard: str = ""

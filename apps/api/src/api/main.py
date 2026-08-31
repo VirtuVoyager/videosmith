@@ -6,18 +6,30 @@ Auth: every route except /healthz requires `Authorization: Bearer <SS_API_BEARER
 from __future__ import annotations
 
 import asyncio
+import mimetypes
 import uuid
+from datetime import UTC, datetime
 from functools import lru_cache
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
 from storysmith import db
 from storysmith.graph.build import build_graph, postgres_checkpointer_context
-from storysmith.models import Mode, ProjectStatus, VideoProject
+from storysmith.models import (
+    CharacterRef,
+    CostEntry,
+    Mode,
+    ProjectStatus,
+    StyleContract,
+    VideoProject,
+)
 from storysmith.pipeline import Pipeline, PortBundle
 from storysmith.settings import Settings
+from storysmith.util.character_prompts import CHAR_REF_ASPECT_RATIO, build_char_ref_prompt
+from storysmith.util.configs import load_safety_negative_terms
 
 app = FastAPI(title="StorySmith Review Console API")
 # apps/ui runs on a different origin (console_base_url, default
@@ -78,6 +90,7 @@ class ProjectSummary(BaseModel):
     title: str | None
     total_cost_usd: float
     updated_at: str
+    show_id: str | None
 
 
 @app.get(
@@ -96,6 +109,7 @@ async def list_projects(settings: Settings = Depends(get_settings)) -> list[Proj
             title=row.title,
             total_cost_usd=row.total_cost_usd,
             updated_at=row.updated_at.isoformat(),
+            show_id=row.show_id,
         )
         for row in rows
     ]
@@ -126,6 +140,7 @@ class ProjectDetail(BaseModel):
     qa_reports: list[QAReportOut]
     assets: list[AssetOut]
     published_url: str | None
+    show_id: str | None
 
 
 async def _load_project_state(
@@ -170,6 +185,7 @@ async def _project_detail(project_id: str, settings: Settings, ports: PortBundle
         ],
         assets=assets,
         published_url=project.published_url,
+        show_id=project.show_id,
     )
 
 
@@ -250,6 +266,7 @@ async def reject_project(
         brief=state.brief,
         title=state.manifest.title if state.manifest else None,
         total_cost_usd=state.total_cost,
+        show_id=state.show_id,
     )
     return await _project_detail(project_id, settings, ports)
 
@@ -257,6 +274,7 @@ async def reject_project(
 class RunRequest(BaseModel):
     brief: str
     mode: Mode = Mode.RHYME
+    show_id: str | None = None
 
 
 class RunResponse(BaseModel):
@@ -269,11 +287,178 @@ async def trigger_run(
     settings: Settings = Depends(get_settings),
     ports: PortBundle = Depends(get_ports),
 ) -> RunResponse:
+    # Fail fast, synchronously, on an unknown show_id -- Pipeline.run() would
+    # also raise ValueError for this, but only inside the fire-and-forget
+    # background task below, where the caller never sees it (just a 200
+    # "started" response and a run that silently dies). A cheap existence
+    # check here turns that into an immediate 404 instead.
+    if body.show_id is not None:
+        db_url = _require_db_url(settings)
+        if await db.load_show(db_url, show_id=body.show_id) is None:
+            raise HTTPException(
+                status_code=404, detail=f"no show found with show_id={body.show_id!r}"
+            )
+
     project_id = str(uuid.uuid4())
     pipeline = Pipeline(settings=settings, ports=ports)
     # Fire-and-forget (§7: "trigger a worker job") -- the nightly pipeline is
     # long-running (LLM/video/music calls), so this endpoint returns
     # immediately with the project_id rather than blocking the HTTP request
     # for the whole run; progress is visible via GET /projects/{id}.
-    asyncio.create_task(pipeline.run(brief=body.brief, mode=body.mode, project_id=project_id))
+    asyncio.create_task(
+        pipeline.run(brief=body.brief, mode=body.mode, project_id=project_id, show_id=body.show_id)
+    )
     return RunResponse(project_id=project_id)
+
+
+class CharacterInput(BaseModel):
+    name: str
+    description: str  # physical appearance -- feeds image-gen prompts verbatim
+    personality: str = ""  # behavioral/voice guidance for the Director, not the image model
+    voice_id: str | None = None
+
+
+class CreateShowRequest(BaseModel):
+    show_id: str
+    name: str
+    art_style: str
+    palette: list[str] = []
+    mood: str = "cheerful"
+    tempo_bpm: int = 100
+    aspect_ratio: str = "9:16"
+    resolution: str = "1080x1920"
+    pacing_rules: str = ""
+    characters: list[CharacterInput]
+
+
+class CharacterOut(BaseModel):
+    name: str
+    description: str
+    personality: str
+    voice_id: str | None
+    image_asset_uri: str  # opaque -- pass straight to GET /assets/view
+
+
+class ShowDetail(BaseModel):
+    show_id: str
+    name: str
+    art_style: str
+    characters: list[CharacterOut]
+
+
+class ShowSummary(BaseModel):
+    show_id: str
+    name: str
+    created_at: str
+
+
+@app.post("/shows", response_model=ShowDetail, dependencies=[Depends(require_bearer_token)])
+async def create_show(
+    body: CreateShowRequest,
+    settings: Settings = Depends(get_settings),
+    ports: PortBundle = Depends(get_ports),
+) -> ShowDetail:
+    """User-authored, frozen cast (Amendment 02) -- no LLM involved. The
+    user's own words become CharacterRef.description/personality directly;
+    this only generates and locks in one reference portrait per character."""
+    db_url = _require_db_url(settings)
+    if not body.characters:
+        raise HTTPException(status_code=422, detail="a show needs at least one character")
+
+    base_terms = load_safety_negative_terms(settings.configs_dir)
+    style = StyleContract(
+        art_style=body.art_style,
+        palette=body.palette,
+        mood=body.mood,
+        tempo_bpm=body.tempo_bpm,
+        aspect_ratio=body.aspect_ratio,
+        resolution=body.resolution,
+        characters=[
+            CharacterRef(
+                name=c.name,
+                description=c.description,
+                personality=c.personality,
+                voice_id=c.voice_id,
+            )
+            for c in body.characters
+        ],
+        pacing_rules=body.pacing_rules,
+        negative_terms=base_terms,
+    )
+
+    async def _generate_avatar(character: CharacterRef) -> CharacterRef:
+        prompt = build_char_ref_prompt(character, style.art_style)
+        image_bytes, cost = await ports.image_gen.generate(
+            prompt=prompt, aspect_ratio=CHAR_REF_ASPECT_RATIO
+        )
+        uri = await ports.storage.put(
+            key=f"shows/{body.show_id}/char_{character.name}.png",
+            data=image_bytes,
+            content_type="image/png",
+        )
+        if settings.db_url:
+            await db.record_cost_entries(
+                settings.db_url,
+                # Shows aren't projects -- a synthetic project_id keeps this
+                # spend visible in the same cost ledger / daily budget cap
+                # queries rather than falling outside them entirely.
+                project_id=f"show:{body.show_id}",
+                entries=[
+                    CostEntry(
+                        at=datetime.now(UTC),
+                        item=f"show_avatar:{character.name}",
+                        provider="image_gen",
+                        cost_usd=cost,
+                    )
+                ],
+            )
+        return character.model_copy(update={"image_uri": uri})
+
+    characters_with_avatars = await asyncio.gather(*(_generate_avatar(c) for c in style.characters))
+    style = style.model_copy(update={"characters": list(characters_with_avatars)})
+
+    await db.save_show(db_url, show_id=body.show_id, name=body.name, style=style)
+
+    return ShowDetail(
+        show_id=body.show_id,
+        name=body.name,
+        art_style=style.art_style,
+        characters=[
+            CharacterOut(
+                name=c.name,
+                description=c.description,
+                personality=c.personality,
+                voice_id=c.voice_id,
+                image_asset_uri=c.image_uri or "",
+            )
+            for c in style.characters
+        ],
+    )
+
+
+@app.get("/shows", response_model=list[ShowSummary], dependencies=[Depends(require_bearer_token)])
+async def list_shows(settings: Settings = Depends(get_settings)) -> list[ShowSummary]:
+    rows = await db.list_shows(_require_db_url(settings))
+    return [
+        ShowSummary(show_id=row.show_id, name=row.name, created_at=row.created_at.isoformat())
+        for row in rows
+    ]
+
+
+@app.get("/assets/view", dependencies=[Depends(require_bearer_token)])
+async def view_asset(uri: str, ports: PortBundle = Depends(get_ports)) -> Response:
+    """Generic authenticated asset proxy (Amendment 02) -- streams any
+    storage URI's bytes through the server via the same StoragePort.get()
+    every agent already uses, sidestepping local storage's non-browser-
+    fetchable local:// scheme entirely. Used client-side (fetch + Blob +
+    object URL, since neither <img src> nor a plain link can carry the
+    bearer header) for the show-creation avatar gallery and the final-video
+    download button."""
+    try:
+        data = await ports.storage.get(uri=uri)
+    except (FileNotFoundError, KeyError) as exc:
+        raise HTTPException(status_code=404, detail="asset not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    content_type = mimetypes.guess_type(uri)[0] or "application/octet-stream"
+    return Response(content=data, media_type=content_type)

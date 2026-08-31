@@ -297,6 +297,165 @@
           }
         }
       }
+    },
+    "/shows": {
+      "post": {
+        "summary": "Create Show",
+        "description": "User-authored, frozen cast (Amendment 02) -- no LLM involved. The\nuser's own words become CharacterRef.description/personality directly;\nthis only generates and locks in one reference portrait per character.",
+        "operationId": "create_show_shows_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateShowRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShowDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "List Shows",
+        "operationId": "list_shows_shows_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ShowSummary"
+                  },
+                  "title": "Response List Shows Shows Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/assets/view": {
+      "get": {
+        "summary": "View Asset",
+        "description": "Generic authenticated asset proxy (Amendment 02) -- streams any\nstorage URI's bytes through the server via the same StoragePort.get()\nevery agent already uses, sidestepping local storage's non-browser-\nfetchable local:// scheme entirely. Used client-side (fetch + Blob +\nobject URL, since neither <img src> nor a plain link can carry the\nbearer header) for the show-creation avatar gallery and the final-video\ndownload button.",
+        "operationId": "view_asset_assets_view_get",
+        "parameters": [
+          {
+            "name": "uri",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Uri"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -335,6 +494,144 @@
           "presigned_url"
         ],
         "title": "AssetOut"
+      },
+      "CharacterInput": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "personality": {
+            "type": "string",
+            "title": "Personality",
+            "default": ""
+          },
+          "voice_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voice Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "description"
+        ],
+        "title": "CharacterInput"
+      },
+      "CharacterOut": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "personality": {
+            "type": "string",
+            "title": "Personality"
+          },
+          "voice_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voice Id"
+          },
+          "image_asset_uri": {
+            "type": "string",
+            "title": "Image Asset Uri"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "description",
+          "personality",
+          "voice_id",
+          "image_asset_uri"
+        ],
+        "title": "CharacterOut"
+      },
+      "CreateShowRequest": {
+        "properties": {
+          "show_id": {
+            "type": "string",
+            "title": "Show Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "art_style": {
+            "type": "string",
+            "title": "Art Style"
+          },
+          "palette": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Palette",
+            "default": []
+          },
+          "mood": {
+            "type": "string",
+            "title": "Mood",
+            "default": "cheerful"
+          },
+          "tempo_bpm": {
+            "type": "integer",
+            "title": "Tempo Bpm",
+            "default": 100
+          },
+          "aspect_ratio": {
+            "type": "string",
+            "title": "Aspect Ratio",
+            "default": "9:16"
+          },
+          "resolution": {
+            "type": "string",
+            "title": "Resolution",
+            "default": "1080x1920"
+          },
+          "pacing_rules": {
+            "type": "string",
+            "title": "Pacing Rules",
+            "default": ""
+          },
+          "characters": {
+            "items": {
+              "$ref": "#/components/schemas/CharacterInput"
+            },
+            "type": "array",
+            "title": "Characters"
+          }
+        },
+        "type": "object",
+        "required": [
+          "show_id",
+          "name",
+          "art_style",
+          "characters"
+        ],
+        "title": "CreateShowRequest"
       },
       "HTTPValidationError": {
         "properties": {
@@ -414,6 +711,17 @@
               }
             ],
             "title": "Published Url"
+          },
+          "show_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Show Id"
           }
         },
         "type": "object",
@@ -426,7 +734,8 @@
           "total_cost_usd",
           "qa_reports",
           "assets",
-          "published_url"
+          "published_url",
+          "show_id"
         ],
         "title": "ProjectDetail"
       },
@@ -466,6 +775,17 @@
           "updated_at": {
             "type": "string",
             "title": "Updated At"
+          },
+          "show_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Show Id"
           }
         },
         "type": "object",
@@ -476,7 +796,8 @@
           "brief",
           "title",
           "total_cost_usd",
-          "updated_at"
+          "updated_at",
+          "show_id"
         ],
         "title": "ProjectSummary"
       },
@@ -535,6 +856,17 @@
           "mode": {
             "$ref": "#/components/schemas/Mode",
             "default": "rhyme"
+          },
+          "show_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Show Id"
           }
         },
         "type": "object",
@@ -555,6 +887,60 @@
           "project_id"
         ],
         "title": "RunResponse"
+      },
+      "ShowDetail": {
+        "properties": {
+          "show_id": {
+            "type": "string",
+            "title": "Show Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "art_style": {
+            "type": "string",
+            "title": "Art Style"
+          },
+          "characters": {
+            "items": {
+              "$ref": "#/components/schemas/CharacterOut"
+            },
+            "type": "array",
+            "title": "Characters"
+          }
+        },
+        "type": "object",
+        "required": [
+          "show_id",
+          "name",
+          "art_style",
+          "characters"
+        ],
+        "title": "ShowDetail"
+      },
+      "ShowSummary": {
+        "properties": {
+          "show_id": {
+            "type": "string",
+            "title": "Show Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "show_id",
+          "name",
+          "created_at"
+        ],
+        "title": "ShowSummary"
       },
       "ValidationError": {
         "properties": {

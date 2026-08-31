@@ -33,6 +33,13 @@ def _merge_safety_terms(style: StyleContract, base_terms: list[str]) -> StyleCon
 
 
 async def run(state: VideoProject, *, ports: PortBundle, settings: Settings) -> dict[str, Any]:
+    # Amendment 02: a show's StyleContract (frozen cast, art style) is
+    # loaded directly by Pipeline.run() before the graph starts -- nothing
+    # to invent here, and doing so would silently replace the user's
+    # authored cast with a fresh LLM-generated one every episode.
+    if state.style is not None:
+        return {}
+
     preset_name = _STYLE_PRESET_BY_MODE[state.mode.value]
     style_preset_yaml = load_style_preset_yaml(settings.configs_dir, preset_name)
     user_prompt = prompts.load(

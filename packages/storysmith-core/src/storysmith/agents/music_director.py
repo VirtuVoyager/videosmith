@@ -1,20 +1,68 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import tempfile
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from storysmith.models import AssetKind, AssetRef, CostEntry, Mode, VideoProject
+from storysmith.models import (
+    AssetKind,
+    AssetRef,
+    CostEntry,
+    Mode,
+    Scene,
+    StyleContract,
+    VideoProject,
+)
 from storysmith.settings import Settings
+from storysmith.util.ffmpeg import build_audio_concat_cmd, probe_duration, run_ffmpeg
 from storysmith.util.hashing import sha256_bytes
 
 if TYPE_CHECKING:
     from storysmith.pipeline import PortBundle
 
 _NARRATION_GAP_S = 0.3
+_DIALOGUE_LINE_GAP_S = 0.2
 # Sentinel key in retry_counts for the audio track (mirrors critic.py's
 # _AUDIO_RETRY_KEY) -- not a scene index, since audio has none.
 _AUDIO_RETRY_KEY = -1
+
+
+async def _synthesize_scene_narration(
+    scene: Scene, *, style: StyleContract | None, ports: PortBundle, settings: Settings
+) -> tuple[bytes, float]:
+    """Single-voice narration (today's default), or -- when `scene.dialogue`
+    is set (Amendment 02) -- each line synthesized with its speaker's own
+    voice and concatenated into one clip. Either way this returns exactly
+    one (bytes, cost) pair, so the caller's per-scene AssetRef/timing-map
+    bookkeeping never needs to know which case ran; editor.py and
+    util/assets.py stay completely unaware dialogue exists."""
+    if not scene.dialogue:
+        return await ports.tts.speak(text=scene.narration, voice=settings.tts_voice)
+
+    voice_by_name = {c.name: c.voice_id for c in (style.characters if style else [])}
+    total_cost = 0.0
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        clip_paths: list[Path] = []
+        clip_durations: list[float] = []
+        for i, turn in enumerate(scene.dialogue):
+            voice = voice_by_name.get(turn.speaker) or settings.tts_voice
+            audio, cost = await ports.tts.speak(text=turn.line, voice=voice)
+            total_cost += cost
+            clip_path = tmp_path / f"line_{i}.mp3"
+            clip_path.write_bytes(audio)
+            clip_paths.append(clip_path)
+            clip_durations.append(await asyncio.to_thread(probe_duration, clip_path))
+
+        output_path = tmp_path / "combined.wav"
+        await asyncio.to_thread(
+            run_ffmpeg,
+            build_audio_concat_cmd(clip_paths, clip_durations, _DIALOGUE_LINE_GAP_S, output_path),
+        )
+        return output_path.read_bytes(), total_cost
 
 
 async def _run_rhyme(state: VideoProject, *, ports: PortBundle) -> dict[str, Any]:
@@ -83,10 +131,12 @@ async def _run_topical(
     timing_map: list[dict[str, float | int]] = []
     offset = 0.0
     for scene in manifest.scenes:
-        if not scene.narration:
+        if not scene.narration and not scene.dialogue:
             offset += scene.duration_s + _NARRATION_GAP_S
             continue
-        speech, tts_cost = await ports.tts.speak(text=scene.narration, voice=settings.tts_voice)
+        speech, tts_cost = await _synthesize_scene_narration(
+            scene, style=state.style, ports=ports, settings=settings
+        )
         n_uri = await ports.storage.put(
             key=f"{state.project_id}/narration_{scene.index}/attempt_{attempt}.mp3",
             data=speech,

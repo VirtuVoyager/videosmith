@@ -22,6 +22,7 @@ from storysmith.models import (
     AssetRef,
     CharacterRef,
     CostEntry,
+    DialogueLine,
     FailureLayer,
     Mode,
     MusicCue,
@@ -55,6 +56,7 @@ _CHECKPOINT_ALLOWED_TYPES = [
     FailureLayer,
     QAReport,
     CostEntry,
+    DialogueLine,
 ]
 
 if TYPE_CHECKING:
@@ -121,6 +123,7 @@ def _instrumented(fn: NodeFn, *, node_name: str, settings: Settings) -> NodeFn:
                 brief=state.brief,
                 title=manifest.title if manifest else None,
                 total_cost_usd=state.total_cost + sum(e.cost_usd for e in new_entries or []),
+                show_id=state.show_id,
             )
         log.info("node_done", new_cost_usd=sum(e.cost_usd for e in new_entries or []))
         return result

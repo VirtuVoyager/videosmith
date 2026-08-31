@@ -58,6 +58,12 @@ def run(
     resume: str | None = typer.Option(
         None, "--resume", help="Resume an existing project_id from its checkpoint"
     ),
+    show_id: str | None = typer.Option(
+        None,
+        "--show-id",
+        help="Run an episode against a frozen show cast (created via POST /shows) "
+        "instead of generating a fresh one; --brief becomes this episode's topic",
+    ),
 ) -> None:
     """Run the StorySmith pipeline end to end."""
     settings = Settings()
@@ -69,7 +75,7 @@ def run(
 
         pipeline = Pipeline(settings=settings, ports=build_port_bundle(settings))
 
-    project = asyncio.run(pipeline.run(brief=brief, mode=mode, project_id=resume))
+    project = asyncio.run(pipeline.run(brief=brief, mode=mode, project_id=resume, show_id=show_id))
     typer.echo(
         f"project_id={project.project_id} status={project.status.value} "
         f"total_cost={project.total_cost:.4f}"

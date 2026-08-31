@@ -106,6 +106,55 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/shows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Shows */
+        get: operations["list_shows_shows_get"];
+        put?: never;
+        /**
+         * Create Show
+         * @description User-authored, frozen cast (Amendment 02) -- no LLM involved. The
+         *     user's own words become CharacterRef.description/personality directly;
+         *     this only generates and locks in one reference portrait per character.
+         */
+        post: operations["create_show_shows_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assets/view": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * View Asset
+         * @description Generic authenticated asset proxy (Amendment 02) -- streams any
+         *     storage URI's bytes through the server via the same StoragePort.get()
+         *     every agent already uses, sidestepping local storage's non-browser-
+         *     fetchable local:// scheme entirely. Used client-side (fetch + Blob +
+         *     object URL, since neither <img src> nor a plain link can carry the
+         *     bearer header) for the show-creation avatar gallery and the final-video
+         *     download button.
+         */
+        get: operations["view_asset_assets_view_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -120,6 +169,74 @@ export interface components {
             attempt: number;
             /** Presigned Url */
             presigned_url: string;
+        };
+        /** CharacterInput */
+        CharacterInput: {
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /**
+             * Personality
+             * @default
+             */
+            personality: string;
+            /** Voice Id */
+            voice_id?: string | null;
+        };
+        /** CharacterOut */
+        CharacterOut: {
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /** Personality */
+            personality: string;
+            /** Voice Id */
+            voice_id: string | null;
+            /** Image Asset Uri */
+            image_asset_uri: string;
+        };
+        /** CreateShowRequest */
+        CreateShowRequest: {
+            /** Show Id */
+            show_id: string;
+            /** Name */
+            name: string;
+            /** Art Style */
+            art_style: string;
+            /**
+             * Palette
+             * @default []
+             */
+            palette: string[];
+            /**
+             * Mood
+             * @default cheerful
+             */
+            mood: string;
+            /**
+             * Tempo Bpm
+             * @default 100
+             */
+            tempo_bpm: number;
+            /**
+             * Aspect Ratio
+             * @default 9:16
+             */
+            aspect_ratio: string;
+            /**
+             * Resolution
+             * @default 1080x1920
+             */
+            resolution: string;
+            /**
+             * Pacing Rules
+             * @default
+             */
+            pacing_rules: string;
+            /** Characters */
+            characters: components["schemas"]["CharacterInput"][];
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -151,6 +268,8 @@ export interface components {
             assets: components["schemas"]["AssetOut"][];
             /** Published Url */
             published_url: string | null;
+            /** Show Id */
+            show_id: string | null;
         };
         /** ProjectSummary */
         ProjectSummary: {
@@ -168,6 +287,8 @@ export interface components {
             total_cost_usd: number;
             /** Updated At */
             updated_at: string;
+            /** Show Id */
+            show_id: string | null;
         };
         /** QAReportOut */
         QAReportOut: {
@@ -190,11 +311,33 @@ export interface components {
             brief: string;
             /** @default rhyme */
             mode: components["schemas"]["Mode"];
+            /** Show Id */
+            show_id?: string | null;
         };
         /** RunResponse */
         RunResponse: {
             /** Project Id */
             project_id: string;
+        };
+        /** ShowDetail */
+        ShowDetail: {
+            /** Show Id */
+            show_id: string;
+            /** Name */
+            name: string;
+            /** Art Style */
+            art_style: string;
+            /** Characters */
+            characters: components["schemas"]["CharacterOut"][];
+        };
+        /** ShowSummary */
+        ShowSummary: {
+            /** Show Id */
+            show_id: string;
+            /** Name */
+            name: string;
+            /** Created At */
+            created_at: string;
         };
         /** ValidationError */
         ValidationError: {
@@ -392,6 +535,105 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_shows_shows_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShowSummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_show_shows_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateShowRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShowDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    view_asset_assets_view_get: {
+        parameters: {
+            query: {
+                uri: string;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

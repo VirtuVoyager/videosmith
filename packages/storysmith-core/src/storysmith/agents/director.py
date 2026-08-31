@@ -11,6 +11,7 @@ from storysmith.models import (
     Scene,
     SceneGenMode,
     SceneManifest,
+    StyleContract,
     VideoProject,
 )
 from storysmith.settings import Settings
@@ -98,8 +99,17 @@ def _significant_words(text: str) -> set[str]:
     }
 
 
-def _scene_violations(scene: Scene, style_words: list[str]) -> list[str]:
+def _scene_violations(scene: Scene, style_words: list[str], character_names: set[str]) -> list[str]:
     violations: list[str] = []
+
+    if scene.dialogue:
+        unknown_speakers = {turn.speaker for turn in scene.dialogue} - character_names
+        if unknown_speakers:
+            violations.append(
+                f"scene {scene.index} dialogue has speaker(s) {sorted(unknown_speakers)} "
+                f"not in the cast ({sorted(character_names)}) -- every speaker must exactly "
+                "match a character name"
+            )
 
     if scene.gen_mode == SceneGenMode.I2V:
         if not scene.scene_image_prompt or not scene.scene_image_prompt.strip():
@@ -145,9 +155,9 @@ def _scene_violations(scene: Scene, style_words: list[str]) -> list[str]:
     return violations
 
 
-def _validation_violations(manifest: SceneManifest, art_style: str) -> list[str]:
-    """Code-level post-validation from §2.2 (+ Amendment 01 §3) -- never left
-    to the LLM to self-check."""
+def _validation_violations(manifest: SceneManifest, style: StyleContract) -> list[str]:
+    """Code-level post-validation from §2.2 (+ Amendment 01 §3, Amendment 02) --
+    never left to the LLM to self-check."""
     violations: list[str] = []
 
     scene_count = len(manifest.scenes)
@@ -166,11 +176,12 @@ def _validation_violations(manifest: SceneManifest, art_style: str) -> list[str]
 
     style_words = [
         word.strip(",.")
-        for word in art_style.lower().split()
+        for word in style.art_style.lower().split()
         if len(word.strip(",.")) > _MIN_STYLE_WORD_LEN
     ]
+    character_names = {c.name for c in style.characters}
     for scene in manifest.scenes:
-        violations.extend(_scene_violations(scene, style_words))
+        violations.extend(_scene_violations(scene, style_words, character_names))
 
     return violations
 
@@ -210,7 +221,7 @@ async def run(state: VideoProject, *, ports: PortBundle, settings: Settings) -> 
         CostEntry(at=datetime.now(UTC), item="director:manifest", provider="llm", cost_usd=cost)
     ]
 
-    violations = _validation_violations(manifest, style.art_style)
+    violations = _validation_violations(manifest, style)
     if violations:
         manifest, cost2 = await _ask(_violation_note(violations))
         cost_entries.append(
@@ -221,7 +232,7 @@ async def run(state: VideoProject, *, ports: PortBundle, settings: Settings) -> 
                 cost_usd=cost2,
             )
         )
-        violations = _validation_violations(manifest, style.art_style)
+        violations = _validation_violations(manifest, style)
         if violations:
             raise LLMStructuredOutputError(
                 "Director's SceneManifest still violates constraints after the corrective "

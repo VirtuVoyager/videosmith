@@ -7,7 +7,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-from storysmith.models import CostEntry
+from storysmith.models import CostEntry, StyleContract
 
 
 class Base(DeclarativeBase):
@@ -49,6 +49,22 @@ class ProjectRow(Base):
     title: Mapped[str | None] = mapped_column(String, nullable=True)
     total_cost_usd: Mapped[float] = mapped_column(Float)
     updated_at: Mapped[datetime] = mapped_column(index=True)
+    # Amendment 02: which persistent show (if any) this episode belongs to.
+    show_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+
+
+class ShowRow(Base):
+    """A user-authored, frozen cast + StyleContract (Amendment 02) -- created
+    once via POST /shows, reused by every episode run against it. Never
+    written by an LLM; `style_json` is the exact StyleContract the user
+    described, with each CharacterRef.image_uri already populated."""
+
+    __tablename__ = "shows"
+
+    show_id: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str] = mapped_column(String)
+    style_json: Mapped[str] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(index=True)
 
 
 def to_psycopg_dsn(db_url: str) -> str:
@@ -110,6 +126,7 @@ async def upsert_project_snapshot(
     brief: str,
     title: str | None,
     total_cost_usd: float,
+    show_id: str | None = None,
 ) -> None:
     engine = _get_engine(db_url)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -122,6 +139,7 @@ async def upsert_project_snapshot(
         "title": title,
         "total_cost_usd": total_cost_usd,
         "updated_at": datetime.now(UTC),
+        "show_id": show_id,
     }
     async with session_factory() as session:
         stmt = pg_insert(ProjectRow).values(**values)
@@ -146,6 +164,40 @@ async def get_project(db_url: str, *, project_id: str) -> ProjectRow | None:
             select(ProjectRow).where(ProjectRow.project_id == project_id)
         )
         return result.scalar_one_or_none()
+
+
+async def save_show(db_url: str, *, show_id: str, name: str, style: StyleContract) -> None:
+    """Idempotent upsert -- POST /shows calls this once at creation time; a
+    show is otherwise never rewritten (no in-place regenerate in v1)."""
+    engine = _get_engine(db_url)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    values = {
+        "show_id": show_id,
+        "name": name,
+        "style_json": style.model_dump_json(),
+        "created_at": datetime.now(UTC),
+    }
+    async with session_factory() as session:
+        stmt = pg_insert(ShowRow).values(**values)
+        stmt = stmt.on_conflict_do_update(index_elements=[ShowRow.show_id], set_=values)
+        await session.execute(stmt)
+        await session.commit()
+
+
+async def load_show(db_url: str, *, show_id: str) -> ShowRow | None:
+    engine = _get_engine(db_url)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        result = await session.execute(select(ShowRow).where(ShowRow.show_id == show_id))
+        return result.scalar_one_or_none()
+
+
+async def list_shows(db_url: str) -> list[ShowRow]:
+    engine = _get_engine(db_url)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        result = await session.execute(select(ShowRow).order_by(ShowRow.created_at.desc()))
+        return list(result.scalars().all())
 
 
 async def sum_cost_for_day(db_url: str, *, day: date) -> float:
