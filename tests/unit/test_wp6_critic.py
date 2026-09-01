@@ -9,6 +9,7 @@ from storysmith.models import (
     AssetKind,
     AssetRef,
     CharacterRef,
+    DialogueLine,
     Mode,
     QAReport,
     QAVerdict,
@@ -25,6 +26,7 @@ from storysmith_adapters.stubs import (
     StubNotify,
     StubPublish,
     StubStorage,
+    StubTranscribe,
     StubTTS,
     StubVideoGen,
 )
@@ -70,6 +72,67 @@ def _manifest() -> SceneManifest:
         music_cues=[],
         scenes=[scene],
     )
+
+
+async def test_regression_score_audio_uses_dialogue_not_empty_narration(
+    settings_test: Settings,
+) -> None:
+    """A real live run (topical, dialogue-driven show) hit this: a dialogue
+    scene's `narration` is "" by design (Amendment 02 -- the spoken content
+    lives in `dialogue` instead), but _score_audio's `expected` text was
+    always built from `narration` alone. Comparing a real transcript against
+    an empty expected string scores total mismatch, guaranteeing every
+    dialogue scene gets RETRY'd into HUMAN_REVIEW regardless of actual audio
+    quality -- confirmed live via review_gate's "flagged: audio" notification
+    on an otherwise-clean run."""
+    storage = StubStorage()
+    scene = Scene(
+        index=0,
+        duration_s=5,
+        video_prompt="p",
+        narration="",
+        dialogue=[
+            DialogueLine(speaker="Bob", line="hello there"),
+            DialogueLine(speaker="Miko", line="hi bob"),
+        ],
+    )
+    manifest = SceneManifest(
+        title="t", description="d", tags=[], total_duration_s=5.0, music_cues=[], scenes=[scene]
+    )
+    audio_bytes, _ = await StubTTS().speak(text="hello there hi bob", voice="am_adam")
+    uri = await storage.put(key="narration0.mp3", data=audio_bytes, content_type="audio/mpeg")
+    state = VideoProject(
+        project_id="p1",
+        mode=Mode.TOPICAL,
+        brief="b",
+        manifest=manifest,
+        assets=[
+            AssetRef(
+                kind=AssetKind.AUDIO_MASTER,
+                scene_index=0,
+                attempt=1,
+                uri=uri,
+                content_hash="h",
+                meta={"role": "narration"},
+            )
+        ],
+    )
+    ports = PortBundle(
+        llm=_ScriptedLLM(_qa_report(scores=_PASSING_SCORES)),
+        image_gen=StubImageGen(),
+        video_gen=StubVideoGen(),
+        music_gen=StubMusicGen(),
+        tts=StubTTS(),
+        transcribe=StubTranscribe(),
+        storage=storage,
+        publish=StubPublish(),
+        notify=StubNotify(),
+    )
+
+    transcript, expected, _ = await critic._score_audio(state, ports=ports)
+
+    assert expected == "hello there hi bob"
+    assert transcript == expected
 
 
 def _qa_report(

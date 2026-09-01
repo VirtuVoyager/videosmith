@@ -163,7 +163,18 @@ async def _score_audio(
         )
         transcript_parts.append(" ".join(str(w["word"]) for w in words))
         if asset.scene_index is not None:
-            expected_parts.append(scenes_by_index[asset.scene_index].narration)
+            scene = scenes_by_index[asset.scene_index]
+            # Amendment 02: a dialogue scene's spoken audio is the
+            # concatenated dialogue lines, not `narration` (empty for a
+            # dialogue scene, per the Director prompt) -- comparing a real
+            # transcript against an empty expected string would always
+            # score total mismatch and false-flag audio QA on every
+            # dialogue-driven show.
+            expected_parts.append(
+                " ".join(turn.line for turn in scene.dialogue)
+                if scene.dialogue
+                else scene.narration
+            )
     return " ".join(transcript_parts), " ".join(expected_parts), cost_entries
 
 

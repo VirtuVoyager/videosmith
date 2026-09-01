@@ -99,7 +99,12 @@ def _significant_words(text: str) -> set[str]:
     }
 
 
-def _scene_violations(scene: Scene, style_words: list[str], character_names: set[str]) -> list[str]:
+def _scene_violations(
+    scene: Scene,
+    style_words: list[str],
+    character_names: set[str],
+    identity_words: set[str] | None = None,
+) -> list[str]:
     violations: list[str] = []
 
     if scene.dialogue:
@@ -134,8 +139,20 @@ def _scene_violations(scene: Scene, style_words: list[str], character_names: set
                     f"don't restate the art style: {scene.scene_image_prompt!r} / "
                     f"{scene.video_prompt!r}"
                 )
-            image_words = _significant_words(scene.scene_image_prompt)
-            motion_words = _significant_words(scene.video_prompt)
+            # Amendment 02: a show's character descriptions/personalities can
+            # be long and detailed (user-authored, not a terse LLM-invented
+            # blurb) -- self-containment (§2.2) requires every scene_image_prompt
+            # to restate them in full, and video_prompt legitimately needs to
+            # say *which* character is moving, which naturally reuses some of
+            # that same identity vocabulary without describing layout at all.
+            # Strip style/character-identity words from both sides before
+            # measuring overlap so the check targets scene-specific
+            # composition words (e.g. "table", "background", "centered")
+            # rather than penalizing the required repetition of who's in the
+            # scene and what they look like.
+            excluded = identity_words or set()
+            image_words = _significant_words(scene.scene_image_prompt) - excluded
+            motion_words = _significant_words(scene.video_prompt) - excluded
             overlap = image_words & motion_words
             if image_words and len(overlap) / len(image_words) > _LAYOUT_OVERLAP_THRESHOLD:
                 violations.append(
@@ -180,8 +197,13 @@ def _validation_violations(manifest: SceneManifest, style: StyleContract) -> lis
         if len(word.strip(",.")) > _MIN_STYLE_WORD_LEN
     ]
     character_names = {c.name for c in style.characters}
+    identity_words = _significant_words(style.art_style)
+    for c in style.characters:
+        identity_words |= _significant_words(c.name)
+        identity_words |= _significant_words(c.description)
+        identity_words |= _significant_words(c.personality)
     for scene in manifest.scenes:
-        violations.extend(_scene_violations(scene, style_words, character_names))
+        violations.extend(_scene_violations(scene, style_words, character_names, identity_words))
 
     return violations
 

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 from storysmith.agents import music_director
-from storysmith.agents.director import _scene_violations
+from storysmith.agents.director import _scene_violations, _significant_words
 from storysmith.models import (
     AssetKind,
     CharacterRef,
@@ -67,6 +67,82 @@ def test_dialogue_with_known_speakers_has_no_speaker_violation() -> None:
 def test_scene_without_dialogue_is_unaffected() -> None:
     scene = _t2v_scene(index=0, dialogue=None)
     violations = _scene_violations(scene, style_words=[], character_names={"Bob"})
+    assert violations == []
+
+
+def test_regression_i2v_overlap_check_ignores_show_identity_vocabulary() -> None:
+    """A real live run (show=Crocky & Roachy) hit this: a show's user-authored
+    character description/personality can be long and detailed, and
+    self-containment (§2.2) requires scene_image_prompt to restate it in
+    full every time. Before this fix, a video_prompt that legitimately named
+    which character was moving (reusing some of that same identity
+    vocabulary, not re-describing layout) tripped the Amendment 01 §3
+    composition-overlap check and crashed Director's post-validation even
+    after the corrective round -- confirmed via `uv run python -c ...`
+    reproducing the exact scene/style from that run before this fix landed."""
+    style = StyleContract(
+        art_style=(
+            "Polished realistic 3D Disney-Pixar style CG animation, cinematic lighting, "
+            "expressive stylized proportions, subsurface skin scattering"
+        ),
+        palette=[],
+        mood="warm and witty",
+        tempo_bpm=90,
+        characters=[
+            CharacterRef(
+                name="Crocky",
+                description=(
+                    "a brown cockroach anthropomorphized to stand and sit upright like a "
+                    "person, glossy chitin exoskeleton, large expressive eyes, small round "
+                    "glasses, tweed vest over a collared shirt"
+                ),
+                personality="the intellectual worrier of the pair",
+            ),
+            CharacterRef(
+                name="Roachy",
+                description=(
+                    "a reddish-brown cockroach anthropomorphized to stand and sit upright "
+                    "like a person, glossy chitin exoskeleton, large expressive eyes, a "
+                    "small bowtie"
+                ),
+                personality="the laid-back optimist",
+            ),
+        ],
+        pacing_rules="",
+        negative_terms=[],
+    )
+    scene = Scene(
+        index=0,
+        duration_s=6,
+        gen_mode=SceneGenMode.I2V,
+        scene_image_prompt=(
+            "Polished realistic 3D Disney-Pixar style CG animation, cinematic lighting, "
+            "expressive stylized proportions, subsurface skin scattering. A cozy cafe "
+            "interior with warm lighting. Crocky, a brown cockroach anthropomorphized to "
+            "stand and sit upright like a person, glossy chitin exoskeleton, large "
+            "expressive eyes, small round glasses, tweed vest over a collared shirt, sits "
+            "on the left holding a coffee cup. Roachy, a reddish-brown cockroach "
+            "anthropomorphized to stand and sit upright like a person, glossy chitin "
+            "exoskeleton, large expressive eyes, a small bowtie, sits on the right holding "
+            "a coffee cup. Both characters are centered in frame, camera angle is a medium "
+            "shot from slightly above, background shows cafe decor."
+        ),
+        video_prompt=(
+            "Crocky and Roachy sip their coffee, occasionally gesturing with their hands as "
+            "they talk, camera remains static, background stays fixed, nothing else moves."
+        ),
+        narration="",
+    )
+    style_words = [w.strip(",.") for w in style.art_style.lower().split() if len(w.strip(",.")) > 3]
+    character_names = {c.name for c in style.characters}
+    identity_words = _significant_words(style.art_style)
+    for c in style.characters:
+        identity_words |= _significant_words(c.name)
+        identity_words |= _significant_words(c.description)
+        identity_words |= _significant_words(c.personality)
+
+    violations = _scene_violations(scene, style_words, character_names, identity_words)
+
     assert violations == []
 
 
