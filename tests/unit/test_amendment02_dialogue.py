@@ -146,6 +146,93 @@ def test_regression_i2v_overlap_check_ignores_show_identity_vocabulary() -> None
     assert violations == []
 
 
+def _crocky_and_roachy() -> StyleContract:
+    return StyleContract(
+        art_style="polished realistic 3D Disney-Pixar style CG animation",
+        palette=[],
+        mood="warm and witty",
+        tempo_bpm=90,
+        characters=[
+            CharacterRef(
+                name="Crocky",
+                description=(
+                    "a brown cockroach anthropomorphized to stand and sit upright like a "
+                    "person, glossy chitin exoskeleton, large expressive eyes, small round "
+                    "glasses, tweed vest over a collared shirt"
+                ),
+            ),
+            CharacterRef(
+                name="Roachy",
+                description=(
+                    "a reddish-brown cockroach anthropomorphized to stand and sit upright "
+                    "like a person, glossy chitin exoskeleton, large expressive eyes, a "
+                    "small bowtie"
+                ),
+            ),
+        ],
+        pacing_rules="",
+        negative_terms=[],
+    )
+
+
+def test_regression_i2v_prompt_naming_character_without_description_is_flagged() -> None:
+    """A real live run (show=Crocky & Roachy) hit this for real: only scene
+    0's scene_image_prompt restated character appearance in any detail;
+    scenes 1-4 just said "Crocky and Roachy sit at the table" -- self-
+    containment (§2.2) was never actually checked per character, only that
+    *some* art-style word appeared somewhere. The generated video showed
+    five visually unrelated character designs, scene to scene, because nothing
+    in the image model's stateless calls carried Crocky/Roachy's appearance
+    forward. Before this fix, _validation_violations never caught this."""
+    style = _crocky_and_roachy()
+    scene = Scene(
+        index=1,
+        duration_s=6,
+        gen_mode=SceneGenMode.I2V,
+        scene_image_prompt=(
+            "Same café view as previous scene, with Crocky and Roachy seated at the round "
+            "table, coffee cups in front of them. Crocky on the left, Roachy on the right."
+        ),
+        video_prompt="Crocky and Roachy sip their coffee, camera remains static.",
+        narration="",
+    )
+    style_words = [w.strip(",.") for w in style.art_style.lower().split() if len(w.strip(",.")) > 3]
+
+    violations = _scene_violations(
+        scene, style_words, {"Crocky", "Roachy"}, characters=style.characters
+    )
+
+    assert any("Crocky" in v and "doesn't restate" in v for v in violations)
+    assert any("Roachy" in v and "doesn't restate" in v for v in violations)
+
+
+def test_i2v_prompt_fully_restating_character_appearance_is_not_flagged() -> None:
+    style = _crocky_and_roachy()
+    scene = Scene(
+        index=0,
+        duration_s=6,
+        gen_mode=SceneGenMode.I2V,
+        scene_image_prompt=(
+            "Polished realistic 3D Disney-Pixar style CG animation. A cozy cafe interior. "
+            "Crocky, a brown cockroach anthropomorphized to stand and sit upright like a "
+            "person, glossy chitin exoskeleton, large expressive eyes, small round glasses, "
+            "tweed vest over a collared shirt, sits on the left holding a coffee cup. Roachy, "
+            "a reddish-brown cockroach anthropomorphized to stand and sit upright like a "
+            "person, glossy chitin exoskeleton, large expressive eyes, a small bowtie, sits "
+            "on the right holding a coffee cup."
+        ),
+        video_prompt="Crocky and Roachy sip their coffee, camera remains static.",
+        narration="",
+    )
+    style_words = [w.strip(",.") for w in style.art_style.lower().split() if len(w.strip(",.")) > 3]
+
+    violations = _scene_violations(
+        scene, style_words, {"Crocky", "Roachy"}, characters=style.characters
+    )
+
+    assert not any("doesn't restate" in v for v in violations)
+
+
 def test_build_audio_concat_cmd_single_clip() -> None:
     cmd = build_audio_concat_cmd([Path("a.mp3")], [1.0], 0.2, Path("out.wav"))
     filter_complex = cmd[cmd.index("-filter_complex") + 1]

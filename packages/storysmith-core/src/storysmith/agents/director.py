@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from storysmith.errors import LLMStructuredOutputError
 from storysmith.models import (
+    CharacterRef,
     CostEntry,
     ProjectStatus,
     Scene,
@@ -90,6 +91,16 @@ _MOTION_PROMPT_STOPWORDS = {
 }
 _LAYOUT_OVERLAP_THRESHOLD = 0.5
 
+# A prompt that names a character but doesn't restate enough of their visual
+# description has no way to render them consistently: neither image nor
+# video models carry memory between calls, so "Crocky and Roachy sit at the
+# table" (name only) renders two different-looking characters every single
+# call. Confirmed live: a real 5-scene episode where only scene 0's
+# scene_image_prompt restated appearance produced five visually unrelated
+# character designs, scene to scene. Lenient (not 1.0) to allow paraphrasing
+# the description rather than demanding a verbatim copy.
+_CHARACTER_DESCRIPTION_MIN_OVERLAP = 0.3
+
 
 def _significant_words(text: str) -> set[str]:
     return {
@@ -99,11 +110,42 @@ def _significant_words(text: str) -> set[str]:
     }
 
 
+def _character_restatement_violations(
+    scene_index: int, prompt: str, characters: list[CharacterRef]
+) -> list[str]:
+    """A prompt is self-contained (§2.2) only if every character it names is
+    also visually described there -- an image/video model has no memory of
+    what "Crocky" looked like in an earlier scene, only what's in *this*
+    prompt. Checked as significant-word overlap against the character's own
+    description (same technique/threshold philosophy as the art-style and
+    layout-overlap checks above), not exact substring matching, so
+    paraphrasing the description still passes."""
+    violations: list[str] = []
+    prompt_lower = prompt.lower()
+    prompt_words = _significant_words(prompt)
+    for character in characters:
+        if character.name.lower() not in prompt_lower:
+            continue
+        desc_words = _significant_words(character.description)
+        if not desc_words:
+            continue
+        overlap = desc_words & prompt_words
+        if len(overlap) / len(desc_words) < _CHARACTER_DESCRIPTION_MIN_OVERLAP:
+            violations.append(
+                f"scene {scene_index} mentions {character.name} by name but doesn't restate "
+                "enough of their visual description -- image/video models have no memory of "
+                "earlier scenes, so every prompt that names a character must fully re-describe "
+                "their appearance (not just say 'same as before' or reuse only their name)"
+            )
+    return violations
+
+
 def _scene_violations(
     scene: Scene,
     style_words: list[str],
     character_names: set[str],
     identity_words: set[str] | None = None,
+    characters: list[CharacterRef] | None = None,
 ) -> list[str]:
     violations: list[str] = []
 
@@ -139,6 +181,14 @@ def _scene_violations(
                     f"don't restate the art style: {scene.scene_image_prompt!r} / "
                     f"{scene.video_prompt!r}"
                 )
+            # scene_image_prompt specifically (not video_prompt) is what the
+            # image model actually renders -- it's the one that must carry
+            # each named character's full visual description.
+            violations.extend(
+                _character_restatement_violations(
+                    scene.index, scene.scene_image_prompt, characters or []
+                )
+            )
             # Amendment 02: a show's character descriptions/personalities can
             # be long and detailed (user-authored, not a terse LLM-invented
             # blurb) -- self-containment (§2.2) requires every scene_image_prompt
@@ -169,6 +219,9 @@ def _scene_violations(
                 f"scene {scene.index} video_prompt doesn't restate the art style: "
                 f"{scene.video_prompt!r}"
             )
+        violations.extend(
+            _character_restatement_violations(scene.index, scene.video_prompt, characters or [])
+        )
     return violations
 
 
@@ -203,7 +256,9 @@ def _validation_violations(manifest: SceneManifest, style: StyleContract) -> lis
         identity_words |= _significant_words(c.description)
         identity_words |= _significant_words(c.personality)
     for scene in manifest.scenes:
-        violations.extend(_scene_violations(scene, style_words, character_names, identity_words))
+        violations.extend(
+            _scene_violations(scene, style_words, character_names, identity_words, style.characters)
+        )
 
     return violations
 
