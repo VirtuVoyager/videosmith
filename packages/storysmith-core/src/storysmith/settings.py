@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SS_", env_file=".env", extra="ignore")
 
     # --- LLM ---
-    llm_provider: str = "anthropic"  # anthropic | groq | azure_openai
+    llm_provider: str = "anthropic"  # anthropic | groq | replicate | azure_openai
     anthropic_api_key: str = ""
     anthropic_model_standard: str = "claude-sonnet-4-6"
     anthropic_model_vision: str = "claude-sonnet-4-6"
@@ -30,6 +30,15 @@ class Settings(BaseSettings):
     # vision replacement here.
     groq_model_standard: str = "openai/gpt-oss-120b"
     groq_model_vision: str = "openai/gpt-oss-120b"
+    # Replicate: raw text-completion models (no tool-calling/JSON mode), used
+    # as a rate-limit escape hatch from Groq's free-tier 8000 TPM cap -- see
+    # llm_replicate.py's docstring. Same SS_REPLICATE_API_TOKEN as the
+    # image/video/music/TTS adapters, metered pay-as-you-go (no TPM cap).
+    # SPEC-GAP: no vision-capable Replicate model wired in -- vision tier
+    # falls back to the same text-only model; Critic's keyframe QA runs
+    # blind under this provider (see llm_replicate.py).
+    replicate_model_standard: str = "openai/gpt-oss-120b"
+    replicate_model_vision: str = "openai/gpt-oss-120b"
     azure_openai_endpoint: str = ""
     azure_openai_api_key: str = ""
     azure_openai_deployment_standard: str = ""
@@ -42,9 +51,15 @@ class Settings(BaseSettings):
     # param present or absent); Wan needs two distinct repos, hence two
     # settings fields -- point both at the same value for single-model
     # providers, or back at wan-video/wan-2.2-{i2v,t2v}-fast to switch back.
-    video_model_i2v: str = "xai/grok-imagine-video"
-    video_model_t2v: str = "xai/grok-imagine-video"
-    video_resolution: str = "480p"  # 480p | 720p -- 720p is a 2.5x cost multiplier
+    # prunaai/p-video: cheaper AND higher resolution than the prior default
+    # (xai/grok-imagine-video @ 480p, $0.05/sec flat) at every quality level --
+    # $0.02/sec @720p or $0.04/sec @1080p, confirmed live. Also supports a
+    # `draft: bool` input (~5-10x cheaper, lower quality) not wired in here
+    # yet -- a future lever for cheap Critic-retry iterations before a final
+    # full-quality render, not used by default.
+    video_model_i2v: str = "prunaai/p-video"
+    video_model_t2v: str = "prunaai/p-video"
+    video_resolution: str = "720p"  # 720p | 1080p -- 1080p is a 2x cost multiplier
     image_model: str = "black-forest-labs/flux-schnell"
     # lucataco/ace-step was removed from Replicate; fishaudio/ace-step-1.5 is
     # its current replacement (same underlying ACE-Step model).

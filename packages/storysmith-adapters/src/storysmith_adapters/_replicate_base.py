@@ -43,16 +43,34 @@ class ReplicatePoller:
         Returns (prediction, output_bytes) -- the full prediction dict is
         handed back so callers can read cost signals (e.g. metrics.predict_time).
         """
+        prediction = await self._submit_and_poll(model=model, input_payload=input_payload)
+        output_url = self._extract_output_url(prediction)
+        output_bytes = await self._download(output_url)
+        return prediction, output_bytes
+
+    async def run_text(
+        self, *, model: str, input_payload: dict[str, Any]
+    ) -> tuple[dict[str, Any], str]:
+        """Like run(), but for text-generation models (llm_replicate.py):
+        `output` is a list of streamed text chunks to join (or, for some
+        models, a single string already) rather than a media URL to
+        download -- there's nothing to fetch from storage here.
+        """
+        prediction = await self._submit_and_poll(model=model, input_payload=input_payload)
+        output = prediction["output"]
+        text = "".join(output) if isinstance(output, list) else str(output)
+        return prediction, text
+
+    async def _submit_and_poll(
+        self, *, model: str, input_payload: dict[str, Any]
+    ) -> dict[str, Any]:
         async with httpx.AsyncClient(
             base_url=API_BASE,
             headers={"Authorization": f"Bearer {self._token}"},
             timeout=30.0,
         ) as client:
             prediction = await with_retries(lambda: self._submit(client, model, input_payload))
-            prediction = await with_retries(lambda: self._poll_until_done(client, prediction["id"]))
-            output_url = self._extract_output_url(prediction)
-            output_bytes = await self._download(output_url)
-        return prediction, output_bytes
+            return await with_retries(lambda: self._poll_until_done(client, prediction["id"]))
 
     async def _submit(
         self, client: httpx.AsyncClient, model: str, input_payload: dict[str, Any]

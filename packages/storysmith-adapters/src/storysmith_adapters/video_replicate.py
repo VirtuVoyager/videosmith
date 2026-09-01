@@ -9,13 +9,14 @@ from storysmith_adapters._replicate_base import ReplicatePoller
 
 _MAX_DURATION_S = 10.0  # our own Scene.duration_s ceiling, not a model limit
 
-# xai/grok-imagine-video bills $0.05 per second of *requested output
-# duration*, confirmed against Replicate's own pricing -- not
-# metrics.predict_time (GPU wall-clock), which can run 5-30x longer than the
-# output length for video diffusion models and would badly overstate cost
-# here. Not confirmed whether 480p vs 720p changes the per-second rate;
-# treated as flat until proven otherwise -- update if that's wrong.
-_PER_SECOND_PRICE_USD = 0.05
+# prunaai/p-video bills per second of *requested output duration* at a flat
+# rate per resolution tier (confirmed against Replicate's published pricing,
+# live-tested) -- not metrics.predict_time (GPU wall-clock), which runs far
+# shorter than output length for this model and would badly understate cost
+# here. $0.02/sec @720p (this constant, matching settings.video_resolution's
+# default) or $0.04/sec @1080p -- update this constant if video_resolution is
+# changed to 1080p. Draft mode (not used here) is ~5-10x cheaper still.
+_PER_SECOND_PRICE_USD = 0.02
 
 
 class ReplicateVideoGen:

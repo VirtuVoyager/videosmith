@@ -67,7 +67,7 @@ async def test_poll_until_succeeded(settings_video: Settings) -> None:
         )
 
         assert data == b"MP4DATA"
-        assert cost == pytest.approx(8 * 0.05)  # billed by requested output duration, not GPU time
+        assert cost == pytest.approx(8 * 0.02)  # billed by requested output duration, not GPU time
 
 
 async def test_transient_retry_then_success(settings_video: Settings) -> None:
@@ -96,7 +96,7 @@ async def test_transient_retry_then_success(settings_video: Settings) -> None:
         )
 
         assert data == b"V2"
-        assert cost == pytest.approx(5 * 0.05)
+        assert cost == pytest.approx(5 * 0.02)
 
 
 async def test_content_rejected_not_retried(settings_video: Settings) -> None:
