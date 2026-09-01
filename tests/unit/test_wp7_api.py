@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from collections.abc import Iterator
 
 import pytest
@@ -62,7 +63,7 @@ def test_list_projects_401_with_wrong_token(client: TestClient) -> None:
 async def test_list_and_get_project(
     client: TestClient, api_settings: Settings, api_ports: PortBundle
 ) -> None:
-    project_id = "wp7-list-test"
+    project_id = f"wp7-list-test-{uuid.uuid4()}"
     await _run_to_review(api_settings, api_ports, project_id)
 
     listed = client.get("/projects", headers=_auth())
@@ -88,7 +89,7 @@ def test_get_project_404_when_missing(client: TestClient) -> None:
 async def test_approve_resumes_graph_to_published(
     client: TestClient, api_settings: Settings, api_ports: PortBundle
 ) -> None:
-    project_id = "wp7-approve-test"
+    project_id = f"wp7-approve-test-{uuid.uuid4()}"
     await _run_to_review(api_settings, api_ports, project_id)
 
     response = client.post(f"/projects/{project_id}/approve", headers=_auth())
@@ -102,7 +103,7 @@ async def test_approve_resumes_graph_to_published(
 async def test_approve_409_when_not_in_review(
     client: TestClient, api_settings: Settings, api_ports: PortBundle
 ) -> None:
-    project_id = "wp7-approve-twice"
+    project_id = f"wp7-approve-twice-{uuid.uuid4()}"
     await _run_to_review(api_settings, api_ports, project_id)
     first = client.post(f"/projects/{project_id}/approve", headers=_auth())
     assert first.status_code == 200
@@ -114,7 +115,7 @@ async def test_approve_409_when_not_in_review(
 async def test_reject_marks_rejected_without_publishing(
     client: TestClient, api_settings: Settings, api_ports: PortBundle
 ) -> None:
-    project_id = "wp7-reject-test"
+    project_id = f"wp7-reject-test-{uuid.uuid4()}"
     await _run_to_review(api_settings, api_ports, project_id)
 
     response = client.post(f"/projects/{project_id}/reject", headers=_auth())

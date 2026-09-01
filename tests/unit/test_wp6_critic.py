@@ -219,6 +219,39 @@ def _audio_report(reports: list[QAReport]) -> QAReport:
     return next(r for r in reports if r.scene_index is None)
 
 
+async def test_regression_content_rejected_scene_skips_llm_and_goes_to_human_review(
+    settings_test: Settings,
+) -> None:
+    """scene_stills.py/videographer.py mark a content-policy-rejected scene
+    with a poison AssetRef (no real uri/bytes) rather than crashing the run
+    (CLAUDE.md §3.1). Critic must recognize that marker and route straight
+    to HUMAN_REVIEW without trying to fetch keyframes from an asset that was
+    never actually generated -- confirmed live this crashed the whole run
+    before this fix (KeyError on storage.get for a URI nothing ever put)."""
+    storage = StubStorage()
+    state = await _seeded_state(storage)
+    rejected_asset = AssetRef(
+        kind=AssetKind.SCENE_VIDEO,
+        scene_index=0,
+        attempt=1,
+        uri="",
+        content_hash="rejected",
+        meta={"content_rejected": "true", "rejection_reason": "flagged as NSFW"},
+    )
+    state = state.model_copy(
+        update={"assets": [a for a in state.assets if a.scene_index != 0] + [rejected_asset]}
+    )
+    llm = _ScriptedLLM(_qa_report(scores=_PASSING_SCORES))
+
+    result = await critic.run(state, ports=_ports(llm, storage), settings=settings_test)
+
+    scene_report = _scene_report(result["qa_reports"])
+    assert scene_report.verdict == QAVerdict.HUMAN_REVIEW
+    assert "content_policy_rejection" in scene_report.safety_flags
+    assert "NSFW" in scene_report.critique
+    assert llm.calls == 0  # never attempted to score a video that doesn't exist
+
+
 async def test_scene_passes_above_threshold(settings_test: Settings) -> None:
     storage = StubStorage()
     state = await _seeded_state(storage)

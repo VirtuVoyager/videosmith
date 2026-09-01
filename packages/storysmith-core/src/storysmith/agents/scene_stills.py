@@ -4,6 +4,7 @@ import asyncio
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from storysmith.errors import ContentRejectedError
 from storysmith.models import (
     AssetKind,
     AssetRef,
@@ -78,9 +79,27 @@ async def _generate_one(
     if any(a.content_hash == content_hash for a in state.assets):
         return None, None  # idempotent skip: identical request already produced this still
 
-    async with semaphore:
-        image_bytes, cost = await ports.image_gen.generate(
-            prompt=prompt, aspect_ratio=state.style.aspect_ratio
+    try:
+        async with semaphore:
+            image_bytes, cost = await ports.image_gen.generate(
+                prompt=prompt, aspect_ratio=state.style.aspect_ratio
+            )
+    except ContentRejectedError as exc:
+        # NOT retried (§3.1) -- bubbles to Critic as an auto-fail instead of
+        # crashing the whole run. No bytes were ever generated, so there's
+        # nothing to store; the poison marker (no real uri) tells Critic to
+        # emit HUMAN_REVIEW for this scene without trying to fetch/score it.
+        return (
+            AssetRef(
+                kind=AssetKind.SCENE_STILL,
+                scene_index=scene.index,
+                attempt=attempt,
+                uri="",
+                content_hash=content_hash,
+                cost_usd=0.0,
+                meta={"content_rejected": "true", "rejection_reason": str(exc)[:500]},
+            ),
+            None,
         )
     uri = await ports.storage.put(
         key=f"{state.project_id}/scene_{scene.index}/still_attempt_{attempt}.png",

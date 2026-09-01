@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, time, timedelta
 
-from sqlalchemy import Float, String, func, select
+from sqlalchemy import Float, String, delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -113,6 +113,21 @@ async def record_cost_entries(db_url: str, *, project_id: str, entries: list[Cos
                 for entry in entries
             ]
         )
+        await session.commit()
+
+
+async def delete_cost_entries_for_project(db_url: str, *, project_id: str) -> None:
+    """Test-only cleanup: sum_cost_for_day (the live daily-budget-cap guard)
+    sums every cost_entries row for the day regardless of project_id, so a
+    test writing entries directly (not through a real Pipeline.run()) must
+    delete them afterward or it silently inflates the real app's "spent
+    today" total against a shared dev/CI Postgres -- confirmed to actually
+    happen (test_wp8_observability.py's synthetic $999/$1.5/$2.25 rows
+    once summed past $4000, incorrectly blocking a real run)."""
+    engine = _get_engine(db_url)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        await session.execute(delete(CostEntryRow).where(CostEntryRow.project_id == project_id))
         await session.commit()
 
 

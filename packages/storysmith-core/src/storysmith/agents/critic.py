@@ -188,6 +188,25 @@ async def run(state: VideoProject, *, ports: PortBundle, settings: Settings) -> 
     cost_entries: list[CostEntry] = []
 
     for idx, asset in _latest_scene_videos(state):
+        if asset.meta.get("content_rejected") == "true":
+            # scene_stills.py/videographer.py poison marker (§3.1): the
+            # provider rejected this scene's prompt outright -- there's no
+            # real video to fetch keyframes from or score, so skip the
+            # vision-LLM call entirely and go straight to human review, same
+            # as any other safety flag (never auto-retried).
+            reports.append(
+                QAReport(
+                    scene_index=idx,
+                    verdict=QAVerdict.HUMAN_REVIEW,
+                    scores={},
+                    safety_flags=["content_policy_rejection"],
+                    critique=(
+                        "Provider rejected this scene's prompt as unsafe (often a false "
+                        f"positive): {asset.meta.get('rejection_reason', '')}"
+                    ),
+                )
+            )
+            continue
         raw_report, cost = await _score_scene(
             idx, asset, state=state, ports=ports, rubric=rubric, has_lesson=has_lesson
         )

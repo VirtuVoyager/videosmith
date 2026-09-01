@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 import pytest
@@ -187,7 +188,11 @@ async def test_pipeline_run_with_show_id_loads_frozen_cast(pg_required: Settings
     result = await pipeline.run(
         brief="a topic for this episode",
         mode=Mode.TOPICAL,
-        project_id="show-episode-1",
+        # Unique per test invocation -- a fixed id resumes from whatever
+        # checkpoint a *prior* run of this test already left in the real
+        # Postgres pg_required points at, whose asset URIs this run's fresh
+        # in-memory StubStorage never populated (KeyError on storage.get).
+        project_id=f"show-episode-{uuid.uuid4()}",
         show_id="frozen-cast",
     )
 
@@ -200,7 +205,9 @@ async def test_pipeline_run_with_show_id_loads_frozen_cast(pg_required: Settings
 async def test_pipeline_run_with_unknown_show_id_raises(pg_required: Settings) -> None:
     pipeline = Pipeline(settings=pg_required, ports=_ports())
     with pytest.raises(ValueError, match="no show found"):
-        await pipeline.run(brief="x", mode=Mode.TOPICAL, project_id="p2", show_id="nope")
+        await pipeline.run(
+            brief="x", mode=Mode.TOPICAL, project_id=f"p2-{uuid.uuid4()}", show_id="nope"
+        )
 
 
 async def test_pipeline_run_with_show_id_requires_db_url(settings_test: Settings) -> None:
