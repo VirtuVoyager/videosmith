@@ -58,6 +58,26 @@ AsyncPostgresSaver. Kill the process mid-run and `storysmith run --resume <id>`
 continues from the last completed node. Already-generated scenes are not
 regenerated, so a crash does not re-spend money.
 
+### Built for recurring casts
+
+A show is a cast frozen once and reused forever: describe each character's
+appearance, personality, and voice through the UI (or `POST /shows`), their
+avatars generate and lock in immediately, and every future episode loads that
+exact cast instead of inventing a new one — Creative Director and Character
+Refs both skip (zero cost) once a project's style already has every
+character's portrait. Scenes can carry speaker-attributed `dialogue` instead
+of single-voice narration; Music Director synthesizes each line in its
+speaker's own voice and stitches them into one clip before anything
+downstream (Editor, timing map) ever sees it — nothing else in the pipeline
+needs to know a scene had more than one voice.
+
+```bash
+# once, per show:
+curl -X POST localhost:8000/shows -H "Authorization: Bearer $SS_API_BEARER_TOKEN" -d '{...}'
+# every episode after that:
+uv run storysmith run --show-id bob-and-miko --brief "Bob won't share the couch" --mode topical
+```
+
 ### Built to not bankrupt you
 
 Every provider call writes a cost entry to Postgres. A per-run cap is checked
@@ -171,22 +191,24 @@ cd apps/ui && npm run gen-api-types
 
 | Var | Required | Default | Description |
 |---|---|---|---|
-| `SS_LLM_PROVIDER` | no | `anthropic` | `anthropic` \| `groq` \| `azure_openai` |
+| `SS_LLM_PROVIDER` | no | `anthropic` | `anthropic` \| `groq` \| `replicate` \| `azure_openai` |
 | `SS_ANTHROPIC_API_KEY` | yes (if anthropic) | — | Anthropic API key |
 | `SS_ANTHROPIC_MODEL_STANDARD` | no | `claude-sonnet-4-6` | Standard-tier Anthropic model id |
 | `SS_ANTHROPIC_MODEL_VISION` | no | `claude-sonnet-4-6` | Vision-tier Anthropic model id |
 | `SS_GROQ_API_KEY` | yes (if groq) | — | Groq API key |
-| `SS_GROQ_MODEL_STANDARD` | no | `llama-3.3-70b-versatile` | Standard-tier Groq model id |
-| `SS_GROQ_MODEL_VISION` | no | `llama-3.2-90b-vision-preview` | Vision-tier Groq model id |
+| `SS_GROQ_MODEL_STANDARD` | no | `openai/gpt-oss-120b` | Standard-tier Groq model id -- Groq's Llama lineup (this project's original default) was fully removed at some point; verify current availability via `GET /openai/v1/models` before relying on this. This account's free tier also caps every current chat model at 8000 tokens/minute -- smaller than a single Director request, confirmed live -- see `SS_LLM_PROVIDER=replicate` below |
+| `SS_GROQ_MODEL_VISION` | no | `openai/gpt-oss-120b` | Vision-tier Groq model id -- no vision-capable model was found in Groq's lineup as of writing; use `SS_LLM_PROVIDER=anthropic` if Critic's vision calls need to stay reliable |
+| `SS_REPLICATE_MODEL_STANDARD` | no | `openai/gpt-oss-120b` | Standard-tier model id on Replicate (only if `SS_LLM_PROVIDER=replicate`) -- a raw text-completion model, no tool-calling/JSON mode; see `llm_replicate.py`. Metered pay-as-you-go on `SS_REPLICATE_API_TOKEN` below, with no TPM cap -- the practical fix for Groq's 8000 TPM ceiling above |
+| `SS_REPLICATE_MODEL_VISION` | no | `openai/gpt-oss-120b` | Vision-tier model id on Replicate -- SPEC-GAP: no vision-capable model is wired in, falls back to the same text-only model, so Critic's keyframe QA runs blind under this provider; use `SS_LLM_PROVIDER=anthropic` if that needs to stay reliable |
 | `SS_AZURE_OPENAI_ENDPOINT` | yes (if azure) | — | Azure OpenAI resource endpoint |
 | `SS_AZURE_OPENAI_API_KEY` | yes (if azure) | — | Azure OpenAI API key |
 | `SS_AZURE_OPENAI_DEPLOYMENT_STANDARD` | yes (if azure) | — | Standard-tier deployment name |
 | `SS_AZURE_OPENAI_DEPLOYMENT_VISION` | yes (if azure) | — | Vision-tier deployment name |
 | `SS_AZURE_OPENAI_API_VERSION` | no | `2024-10-21` | Azure OpenAI API version |
 | `SS_REPLICATE_API_TOKEN` | yes | — | Replicate API token |
-| `SS_VIDEO_MODEL_I2V` | no | `xai/grok-imagine-video` | Image-to-video model id |
-| `SS_VIDEO_MODEL_T2V` | no | `xai/grok-imagine-video` | Text-to-video model id |
-| `SS_VIDEO_RESOLUTION` | no | `480p` | `480p` \| `720p` -- 720p is a 2.5x cost multiplier |
+| `SS_VIDEO_MODEL_I2V` | no | `prunaai/p-video` | Image-to-video model id -- cheaper and higher-res than the prior `xai/grok-imagine-video` @ 480p default at every quality tier, live-tested; also supports a `draft` mode (~5-10x cheaper, not wired in) for future cheap-retry iterations |
+| `SS_VIDEO_MODEL_T2V` | no | `prunaai/p-video` | Text-to-video model id |
+| `SS_VIDEO_RESOLUTION` | no | `720p` | `720p` \| `1080p` -- 1080p is a 2x cost multiplier |
 | `SS_IMAGE_MODEL` | no | `black-forest-labs/flux-schnell` | Character ref image model id |
 | `SS_MUSIC_MODEL` | no | `fishaudio/ace-step-1.5` | Rhyme-mode music model id (lyrics-driven full song) |
 | `SS_MUSIC_MODEL_INSTRUMENTAL` | no | `meta/musicgen` | Topical-mode music model id (instrumental bed) |
@@ -238,12 +260,22 @@ uv run deepeval test run tests/llm
 uv run python scripts/smoke_live.py
 ```
 
+Want to poke at Editor/Critic/UI changes against realistic media without
+spending money or waiting on real APIs? `storysmith_adapters.stubs_recorded`
+replays a directory of real generated content pulled from a past live run
+(`tests/fixtures/recorded/*/README.md` — not committed, local-only, not part
+of the suite above) through the same ports as the real adapters:
+`Pipeline(settings, ports=recorded_port_bundle(root))` runs the full graph
+end to end offline. `tests/unit/test_stubs_recorded.py` skips cleanly when
+no recording is present locally.
+
 ## Development history
 
 Built spec-first: [HANDOFF_SPEC.md](HANDOFF_SPEC.md) is the frozen original
 design, with changes layered as numbered amendments
 ([Amendment 01](HANDOFF_SPEC_AMENDMENT_01_scene_composition.md) added
-stills-first scene composition).
+stills-first scene composition, [Amendment 02](HANDOFF_SPEC_AMENDMENT_02_show_character_library.md)
+added user-authored show casts and multi-character dialogue).
 
 ## License
 

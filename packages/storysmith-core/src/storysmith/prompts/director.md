@@ -56,4 +56,22 @@ frame (image-to-video) rather than from text alone.
   whose start frame captures the "before" state, one whose start frame
   captures the "after" state. Do not ask one generation to depict the
   transition itself.
+
+## Multi-character dialogue (optional)
+If the style contract's cast has 2 or more characters, a scene *may* set
+`dialogue` instead of relying on `narration` alone: a list of
+`{{"speaker": <exact character name>, "line": <short line>}}` turns. Use
+each character's `personality` field for their voice, timing, and
+comedic angle -- these are recurring characters, not one-off narration, so
+write them in-character and consistent with how they'd react given their
+quirks.
+- Every `speaker` must exactly match a name in the style contract's
+  `characters` -- never invent a new speaker or rename one.
+- Keep exchanges short: 1-2 lines per turn, comedic timing over exposition.
+  A back-and-forth beats a monologue.
+- When `dialogue` is set, `narration` may be left empty ("") -- `dialogue`
+  is what gets spoken, not a duplicate of it.
+- Scenes with a single character, or where a plain reaction/aside reads
+  better than a conversation, can still just use `narration` -- dialogue is
+  for when two or more characters are actually talking to each other.
 {violation_note}

@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 from storysmith.agents import videographer
+from storysmith.errors import ContentRejectedError
 from storysmith.models import (
     AssetKind,
     AssetRef,
@@ -141,6 +142,88 @@ class _TrackingVideoGen:
         await asyncio.sleep(0.01)
         self.in_flight -= 1
         return b"V", 0.01
+
+
+class _RejectingVideoGen:
+    async def generate(self, **kwargs: Any) -> tuple[bytes, float]:
+        raise ContentRejectedError("provider rejected prompt: unit-test")
+
+
+async def test_regression_content_rejected_produces_poison_asset_not_crash(
+    settings_test: Settings,
+) -> None:
+    """CLAUDE.md §3.1: a content-policy rejection must bubble to Critic as
+    an auto-fail, not crash the whole pipeline run -- confirmed live (flux-
+    schnell false-flagged a completely benign scene as NSFW), and nothing
+    caught it before this fix: the exception propagated all the way up
+    through the graph and silently killed the background run task."""
+    scene = Scene(
+        index=0,
+        duration_s=5,
+        video_prompt="soft 2D duck swims",
+        narration="",
+        gen_mode=SceneGenMode.T2V,
+    )
+    manifest = SceneManifest(
+        title="t", description="d", tags=[], total_duration_s=5, music_cues=[], scenes=[scene]
+    )
+    state = VideoProject(
+        project_id="wp3-rejected",
+        mode=Mode.RHYME,
+        brief="counting ducks",
+        style=_style(),
+        manifest=manifest,
+    )
+
+    result = await videographer.run(
+        state, ports=_ports(_RejectingVideoGen()), settings=settings_test
+    )
+
+    assert result["assets"][0].meta["content_rejected"] == "true"
+    assert "unit-test" in result["assets"][0].meta["rejection_reason"]
+    assert result["assets"][0].uri == ""
+
+
+async def test_regression_rejected_still_skips_video_generation_entirely(
+    settings_test: Settings,
+) -> None:
+    """A scene whose start-frame still was already content-rejected
+    (scene_stills.py) shouldn't silently fall back to a t2v-style call with
+    no reference -- that would mask the rejection instead of surfacing it."""
+    scene = Scene(
+        index=0,
+        duration_s=5,
+        video_prompt="soft 2D duck swims",
+        narration="",
+        gen_mode=SceneGenMode.I2V,
+    )
+    manifest = SceneManifest(
+        title="t", description="d", tags=[], total_duration_s=5, music_cues=[], scenes=[scene]
+    )
+    rejected_still = AssetRef(
+        kind=AssetKind.SCENE_STILL,
+        scene_index=0,
+        attempt=1,
+        uri="",
+        content_hash="h",
+        meta={"content_rejected": "true", "rejection_reason": "flagged as NSFW"},
+    )
+    state = VideoProject(
+        project_id="wp3-still-rejected",
+        mode=Mode.RHYME,
+        brief="counting ducks",
+        style=_style(),
+        manifest=manifest,
+        assets=[rejected_still],
+    )
+    video_gen = _CountingVideoGen()
+
+    result = await videographer.run(state, ports=_ports(video_gen), settings=settings_test)
+
+    assert video_gen.calls == 0  # never even attempted -- propagated immediately
+    new_video_asset = next(a for a in result["assets"] if a.kind == AssetKind.SCENE_VIDEO)
+    assert new_video_asset.meta["content_rejected"] == "true"
+    assert "NSFW" in new_video_asset.meta["rejection_reason"]
 
 
 async def test_semaphore_bounds_concurrency(settings_test: Settings) -> None:

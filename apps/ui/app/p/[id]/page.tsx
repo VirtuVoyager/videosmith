@@ -2,7 +2,13 @@
 
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { approveProject, getProject, rejectProject, type ProjectDetail } from "@/lib/api";
+import {
+  approveProject,
+  downloadAsset,
+  getProject,
+  rejectProject,
+  type ProjectDetail,
+} from "@/lib/api";
 import { TokenGate } from "../../TokenGate";
 
 function VerdictBadge({ verdict }: { verdict: string }) {
@@ -19,6 +25,7 @@ function ProjectDetailView({ token, projectId }: { token: string; projectId: str
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   const reload = useCallback(() => {
     getProject(token, projectId)
@@ -53,6 +60,19 @@ function ProjectDetailView({ token, projectId }: { token: string; projectId: str
     }
   }
 
+  async function handleDownload() {
+    if (!finalVideo) return;
+    setDownloading(true);
+    try {
+      const filename = `${(project?.title ?? project?.brief ?? "storysmith-video").replace(/[^a-z0-9]+/gi, "_")}.mp4`;
+      await downloadAsset(token, finalVideo.presigned_url, filename);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   if (error) return <p className="text-red-600">{error}</p>;
   if (!project) return <p>Loading…</p>;
 
@@ -66,12 +86,26 @@ function ProjectDetailView({ token, projectId }: { token: string; projectId: str
       </div>
 
       {finalVideo ? (
-        <video
-          controls
-          poster={thumbnail?.presigned_url}
-          src={finalVideo.presigned_url}
-          className="w-full max-w-sm rounded border border-neutral-200"
-        />
+        <div className="flex flex-col items-start gap-2">
+          {/* Local storage's presigned_url isn't a browser-fetchable URL
+              (see storage_local.py) -- this preview may not actually play.
+              The download button below goes through the authenticated
+              /assets/view proxy instead, which works regardless of
+              storage backend. */}
+          <video
+            controls
+            poster={thumbnail?.presigned_url}
+            src={finalVideo.presigned_url}
+            className="w-full max-w-sm rounded border border-neutral-200"
+          />
+          <button
+            onClick={handleDownload}
+            disabled={downloading}
+            className="rounded border border-neutral-300 px-4 py-2 text-sm disabled:opacity-50"
+          >
+            {downloading ? "Downloading…" : "Download video"}
+          </button>
+        </div>
       ) : (
         <p className="text-neutral-500">No final cut yet.</p>
       )}

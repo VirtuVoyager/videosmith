@@ -225,3 +225,9 @@ node_modules/
 apps/ui/.next/
 
 .DS_Store
+
+# Real generated media/scripts pulled from live Replicate test runs, used to
+# build recorded-fixture stub adapters for realistic offline testing without
+# spending money -- large binary media, kept local rather than committed.
+tests/fixtures/recorded/
+

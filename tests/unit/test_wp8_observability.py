@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Any
 
@@ -22,6 +24,26 @@ from storysmith_adapters.stubs import (
 )
 
 pytestmark = pytest.mark.wp8
+
+
+@pytest.fixture
+async def cost_entries_cleanup(pg_required: Settings) -> AsyncIterator[list[str]]:
+    """sum_cost_for_day (the live daily-budget-cap guard) sums every
+    cost_entries row for the day regardless of project_id -- a test writing
+    entries directly under a shared dev/CI Postgres must delete them
+    afterward or it silently inflates the real app's "spent today" total.
+    Confirmed to actually happen: this file's synthetic $999/$1.5/$2.25
+    rows once summed past $4000 across repeated test runs, incorrectly
+    blocking a real live run. Tests append whichever project_id(s) they
+    wrote cost entries under (directly via db.record_cost_entries, or
+    indirectly by running a real Pipeline) to the yielded list; cleanup
+    runs even if the test fails."""
+    project_ids: list[str] = []
+    try:
+        yield project_ids
+    finally:
+        for project_id in project_ids:
+            await db.delete_cost_entries_for_project(pg_required.db_url, project_id=project_id)
 
 
 class _CountingLLM(StubLLM):
@@ -61,24 +83,36 @@ def _ports(video_gen: Any, llm: Any, storage: Any) -> PortBundle:
     )
 
 
-async def test_cost_ledger_writes_rows(pg_required: Settings) -> None:
+async def test_cost_ledger_writes_rows(
+    pg_required: Settings, cost_entries_cleanup: list[str]
+) -> None:
+    project_id = f"wp8-ledger-test-{uuid.uuid4()}"
+    cost_entries_cleanup.append(project_id)
     entries = [
         CostEntry(at=datetime.now(UTC), item="unit-test:a", provider="llm", cost_usd=1.5),
         CostEntry(at=datetime.now(UTC), item="unit-test:b", provider="video_gen", cost_usd=2.25),
     ]
-    await db.record_cost_entries(pg_required.db_url, project_id="wp8-ledger-test", entries=entries)
+    before = await db.sum_cost_for_day(pg_required.db_url, day=datetime.now(UTC).date())
+    await db.record_cost_entries(pg_required.db_url, project_id=project_id, entries=entries)
 
     spent = await db.sum_cost_for_day(pg_required.db_url, day=datetime.now(UTC).date())
-    assert spent >= 3.75 - 1e-9
+    assert spent >= before + 3.75 - 1e-9
 
 
-async def test_resume_across_fresh_pipeline_instance(pg_required: Settings) -> None:
+async def test_resume_across_fresh_pipeline_instance(
+    pg_required: Settings, cost_entries_cleanup: list[str]
+) -> None:
     """Proves cross-process resumability: a second, entirely new Pipeline +
     ports (nothing shared except settings.db_url and the storage backend,
     standing in for real external storage like S3) resumes the same
     project_id from Postgres without re-running the already-checkpointed
     early stages."""
-    project_id = f"wp8-resume-{id(pg_required)}"
+    # uuid, not id(pg_required): a Python object id is a memory address,
+    # not guaranteed unique across separate runs/processes against the same
+    # real Postgres (this project_id doubles as the LangGraph checkpoint
+    # thread_id) -- confirmed collisions in practice.
+    project_id = f"wp8-resume-{uuid.uuid4()}"
+    cost_entries_cleanup.append(project_id)
     shared_storage = StubStorage()
 
     video_gen_a = _FlakyVideoGen(fail_marker="scene 2")
@@ -102,10 +136,14 @@ async def test_resume_across_fresh_pipeline_instance(pg_required: Settings) -> N
     assert len(scene_videos) == 5
 
 
-async def test_daily_budget_cap_blocks_new_run(pg_required: Settings) -> None:
+async def test_daily_budget_cap_blocks_new_run(
+    pg_required: Settings, cost_entries_cleanup: list[str]
+) -> None:
+    cap_test_project_id = f"wp8-cap-test-{uuid.uuid4()}"
+    cost_entries_cleanup.append(cap_test_project_id)
     await db.record_cost_entries(
         pg_required.db_url,
-        project_id="wp8-cap-test",
+        project_id=cap_test_project_id,
         entries=[CostEntry(at=datetime.now(UTC), item="x", provider="llm", cost_usd=999.0)],
     )
     capped_settings = pg_required.model_copy(update={"daily_budget_cap_usd": 1.0})
@@ -114,7 +152,9 @@ async def test_daily_budget_cap_blocks_new_run(pg_required: Settings) -> None:
     )
 
     with pytest.raises(BudgetExceededError):
-        await pipeline.run(brief="counting ducks", mode=Mode.RHYME, project_id="wp8-cap-run")
+        await pipeline.run(
+            brief="counting ducks", mode=Mode.RHYME, project_id=f"wp8-cap-run-{uuid.uuid4()}"
+        )
 
 
 def test_daily_budget_cap_disabled_by_default(settings_test: Settings) -> None:

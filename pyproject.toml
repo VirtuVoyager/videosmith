@@ -47,6 +47,7 @@ markers = [
     "wp7: WP7 review gate, publisher, API, UI",
     "wp8: WP8 observability + cost ledger + ops",
     "amendment01: HANDOFF_SPEC_AMENDMENT_01 start-frame conditioned scene generation",
+    "amendment02: Amendment 02 user-authored character library + multi-character dialogue",
     "slow: slow-running tests excluded from default CI run",
 ]
 addopts = "--ignore=tests/llm -p no:deepeval"

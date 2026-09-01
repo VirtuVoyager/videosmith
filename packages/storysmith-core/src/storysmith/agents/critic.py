@@ -163,7 +163,18 @@ async def _score_audio(
         )
         transcript_parts.append(" ".join(str(w["word"]) for w in words))
         if asset.scene_index is not None:
-            expected_parts.append(scenes_by_index[asset.scene_index].narration)
+            scene = scenes_by_index[asset.scene_index]
+            # Amendment 02: a dialogue scene's spoken audio is the
+            # concatenated dialogue lines, not `narration` (empty for a
+            # dialogue scene, per the Director prompt) -- comparing a real
+            # transcript against an empty expected string would always
+            # score total mismatch and false-flag audio QA on every
+            # dialogue-driven show.
+            expected_parts.append(
+                " ".join(turn.line for turn in scene.dialogue)
+                if scene.dialogue
+                else scene.narration
+            )
     return " ".join(transcript_parts), " ".join(expected_parts), cost_entries
 
 
@@ -177,6 +188,25 @@ async def run(state: VideoProject, *, ports: PortBundle, settings: Settings) -> 
     cost_entries: list[CostEntry] = []
 
     for idx, asset in _latest_scene_videos(state):
+        if asset.meta.get("content_rejected") == "true":
+            # scene_stills.py/videographer.py poison marker (§3.1): the
+            # provider rejected this scene's prompt outright -- there's no
+            # real video to fetch keyframes from or score, so skip the
+            # vision-LLM call entirely and go straight to human review, same
+            # as any other safety flag (never auto-retried).
+            reports.append(
+                QAReport(
+                    scene_index=idx,
+                    verdict=QAVerdict.HUMAN_REVIEW,
+                    scores={},
+                    safety_flags=["content_policy_rejection"],
+                    critique=(
+                        "Provider rejected this scene's prompt as unsafe (often a false "
+                        f"positive): {asset.meta.get('rejection_reason', '')}"
+                    ),
+                )
+            )
+            continue
         raw_report, cost = await _score_scene(
             idx, asset, state=state, ports=ports, rubric=rubric, has_lesson=has_lesson
         )

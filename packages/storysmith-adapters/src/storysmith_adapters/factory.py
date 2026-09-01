@@ -14,11 +14,15 @@ def _select_llm(settings: Settings) -> LLMPort:
         from storysmith_adapters.llm_groq import GroqLLM
 
         return GroqLLM(settings)
+    if settings.llm_provider == "replicate":
+        from storysmith_adapters.llm_replicate import ReplicateLLM
+
+        return ReplicateLLM(settings)
     # SPEC-GAP: azure_openai is an accepted llm_provider value per §1.2b but
     # has no adapter yet -- no llm_azure_openai.py has been written.
     raise NotImplementedError(
         f"llm_provider={settings.llm_provider!r} has no adapter yet "
-        "(anthropic and groq are implemented)"
+        "(anthropic, groq, and replicate are implemented)"
     )
 
 

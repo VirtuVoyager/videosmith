@@ -4,6 +4,7 @@ import asyncio
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from storysmith.errors import ContentRejectedError
 from storysmith.models import (
     AssetKind,
     AssetRef,
@@ -48,6 +49,10 @@ def _latest_critique(state: VideoProject, scene_index: int) -> str | None:
     return None
 
 
+def _is_content_rejected(asset: AssetRef | None) -> bool:
+    return asset is not None and asset.meta.get("content_rejected") == "true"
+
+
 async def _reference_image(scene: Scene, state: VideoProject, ports: PortBundle) -> bytes | None:
     """Amendment 01: for an i2v scene, the video-gen reference is now that
     scene's own composed still (start-frame conditioning), not a shared
@@ -64,7 +69,7 @@ async def _reference_image(scene: Scene, state: VideoProject, ports: PortBundle)
     if scene.gen_mode != SceneGenMode.I2V:
         return None
     still = latest_scene_still(state.assets, scene.index)
-    if still is None:
+    if still is None or _is_content_rejected(still):
         return None
     return await ports.storage.get(uri=still.uri)
 
@@ -84,6 +89,29 @@ async def _generate_one(
     if critique:
         prompt = f"{prompt}\nAVOID THE FOLLOWING ISSUES: {critique}"
 
+    # If this scene's start-frame still was itself content-rejected, don't
+    # silently fall back to a t2v-style call with no reference -- propagate
+    # the rejection instead of masking it (§3.1/scene_stills.py).
+    still = (
+        latest_scene_still(state.assets, scene.index)
+        if scene.gen_mode == SceneGenMode.I2V
+        else None
+    )
+    if _is_content_rejected(still):
+        assert still is not None
+        return (
+            AssetRef(
+                kind=AssetKind.SCENE_VIDEO,
+                scene_index=scene.index,
+                attempt=attempt,
+                uri="",
+                content_hash=sha256_hex("still-rejected", str(scene.index), str(attempt)),
+                cost_usd=0.0,
+                meta=dict(still.meta),
+            ),
+            None,
+        )
+
     reference_image = await _reference_image(scene, state, ports)
     model_id = settings.video_model_i2v if reference_image is not None else settings.video_model_t2v
     ref_hash = sha256_bytes(reference_image) if reference_image is not None else ""
@@ -91,12 +119,28 @@ async def _generate_one(
     if any(a.content_hash == content_hash for a in state.assets):
         return None, None  # idempotent skip: identical request already produced this asset
 
-    async with semaphore:
-        video_bytes, cost = await ports.video_gen.generate(
-            prompt=prompt,
-            duration_s=scene.duration_s,
-            aspect_ratio=state.style.aspect_ratio,
-            reference_image=reference_image,
+    try:
+        async with semaphore:
+            video_bytes, cost = await ports.video_gen.generate(
+                prompt=prompt,
+                duration_s=scene.duration_s,
+                aspect_ratio=state.style.aspect_ratio,
+                reference_image=reference_image,
+            )
+    except ContentRejectedError as exc:
+        # NOT retried (§3.1) -- bubbles to Critic as an auto-fail instead of
+        # crashing the whole run, same poison-marker pattern as scene_stills.py.
+        return (
+            AssetRef(
+                kind=AssetKind.SCENE_VIDEO,
+                scene_index=scene.index,
+                attempt=attempt,
+                uri="",
+                content_hash=content_hash,
+                cost_usd=0.0,
+                meta={"content_rejected": "true", "rejection_reason": str(exc)[:500]},
+            ),
+            None,
         )
     uri = await ports.storage.put(
         key=f"{state.project_id}/scene_{scene.index}/attempt_{attempt}.mp4",

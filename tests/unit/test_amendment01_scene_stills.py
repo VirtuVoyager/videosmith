@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 from storysmith.agents import director, scene_stills, videographer
+from storysmith.errors import ContentRejectedError
 from storysmith.graph.build import _critic_router
 from storysmith.models import (
     AssetKind,
@@ -271,3 +272,40 @@ async def test_video_prompt_motion_only_flags_layout_overlap(settings_test: Sett
 
     assert llm.calls == 2
     assert result["manifest"] == good
+
+
+class _RejectingImageGen:
+    async def generate(self, *, prompt: str, aspect_ratio: str) -> tuple[bytes, float]:
+        raise ContentRejectedError("provider rejected prompt: unit-test NSFW")
+
+
+async def test_regression_content_rejected_still_produces_poison_asset_not_crash(
+    settings_test: Settings,
+) -> None:
+    """CLAUDE.md §3.1: a content-policy rejection must bubble to Critic as
+    an auto-fail, not crash the whole pipeline run -- confirmed live
+    (flux-schnell false-flagged a completely benign scene as NSFW) and
+    nothing caught it before this fix."""
+    scene = Scene(
+        index=0,
+        duration_s=8,
+        video_prompt="the duck bobs its head, camera remains static",
+        narration="",
+        gen_mode=SceneGenMode.I2V,
+        scene_image_prompt="soft 2D cutout animation duck centered, plain background",
+    )
+    manifest = _manifest([scene, *_filler_scenes(4, start_index=1)])
+    state = VideoProject(
+        project_id="a01-rejected", mode=Mode.RHYME, brief="b", style=_style(), manifest=manifest
+    )
+
+    result = await scene_stills.run(
+        state, ports=_ports(image_gen=_RejectingImageGen()), settings=settings_test
+    )
+
+    assert len(result["assets"]) == 1
+    asset = result["assets"][0]
+    assert asset.meta["content_rejected"] == "true"
+    assert "NSFW" in asset.meta["rejection_reason"]
+    assert asset.uri == ""
+    assert result["cost_ledger"] == []  # nothing was actually generated
