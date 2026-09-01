@@ -260,6 +260,15 @@ uv run deepeval test run tests/llm
 uv run python scripts/smoke_live.py
 ```
 
+Want to poke at Editor/Critic/UI changes against realistic media without
+spending money or waiting on real APIs? `storysmith_adapters.stubs_recorded`
+replays a directory of real generated content pulled from a past live run
+(`tests/fixtures/recorded/*/README.md` — not committed, local-only, not part
+of the suite above) through the same ports as the real adapters:
+`Pipeline(settings, ports=recorded_port_bundle(root))` runs the full graph
+end to end offline. `tests/unit/test_stubs_recorded.py` skips cleanly when
+no recording is present locally.
+
 ## Development history
 
 Built spec-first: [HANDOFF_SPEC.md](HANDOFF_SPEC.md) is the frozen original
