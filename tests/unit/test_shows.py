@@ -70,11 +70,15 @@ def _style(*, with_avatars: bool) -> StyleContract:
     )
 
 
-async def test_save_and_load_show_round_trips(pg_required: Settings) -> None:
+async def test_save_and_load_show_round_trips(
+    pg_required: Settings, shows_cleanup: list[str]
+) -> None:
+    show_id = f"roundtrip-show-{uuid.uuid4()}"
+    shows_cleanup.append(show_id)
     style = _style(with_avatars=True)
-    await db.save_show(pg_required.db_url, show_id="bob-and-miko", name="Bob & Miko", style=style)
+    await db.save_show(pg_required.db_url, show_id=show_id, name="Bob & Miko", style=style)
 
-    loaded = await db.load_show(pg_required.db_url, show_id="bob-and-miko")
+    loaded = await db.load_show(pg_required.db_url, show_id=show_id)
 
     assert loaded is not None
     assert loaded.name == "Bob & Miko"
@@ -86,31 +90,38 @@ async def test_load_show_missing_returns_none(pg_required: Settings) -> None:
     assert await db.load_show(pg_required.db_url, show_id="does-not-exist") is None
 
 
-async def test_save_show_upserts(pg_required: Settings) -> None:
+async def test_save_show_upserts(pg_required: Settings, shows_cleanup: list[str]) -> None:
+    show_id = f"upsert-show-{uuid.uuid4()}"
+    shows_cleanup.append(show_id)
     style_v1 = _style(with_avatars=True)
-    await db.save_show(pg_required.db_url, show_id="upsert-show", name="v1", style=style_v1)
+    await db.save_show(pg_required.db_url, show_id=show_id, name="v1", style=style_v1)
     style_v2 = style_v1.model_copy(update={"mood": "spooky"})
-    await db.save_show(pg_required.db_url, show_id="upsert-show", name="v2", style=style_v2)
+    await db.save_show(pg_required.db_url, show_id=show_id, name="v2", style=style_v2)
 
-    loaded = await db.load_show(pg_required.db_url, show_id="upsert-show")
+    loaded = await db.load_show(pg_required.db_url, show_id=show_id)
     assert loaded is not None
     assert loaded.name == "v2"
     assert StyleContract.model_validate_json(loaded.style_json).mood == "spooky"
 
 
-async def test_list_shows_orders_newest_first(pg_required: Settings) -> None:
+async def test_list_shows_orders_newest_first(
+    pg_required: Settings, shows_cleanup: list[str]
+) -> None:
+    show_id_a = f"show-a-{uuid.uuid4()}"
+    show_id_b = f"show-b-{uuid.uuid4()}"
+    shows_cleanup.extend([show_id_a, show_id_b])
     await db.save_show(
-        pg_required.db_url, show_id="show-a", name="A", style=_style(with_avatars=True)
+        pg_required.db_url, show_id=show_id_a, name="A", style=_style(with_avatars=True)
     )
     await db.save_show(
-        pg_required.db_url, show_id="show-b", name="B", style=_style(with_avatars=True)
+        pg_required.db_url, show_id=show_id_b, name="B", style=_style(with_avatars=True)
     )
 
     rows = await db.list_shows(pg_required.db_url)
     ids = [r.show_id for r in rows]
-    assert "show-a" in ids
-    assert "show-b" in ids
-    assert ids.index("show-b") < ids.index("show-a")  # b saved more recently
+    assert show_id_a in ids
+    assert show_id_b in ids
+    assert ids.index(show_id_b) < ids.index(show_id_a)  # b saved more recently
 
 
 def _ports(llm: Any = None, image_gen: Any = None, storage: Any = None) -> PortBundle:
@@ -161,18 +172,22 @@ async def test_char_refs_skips_when_avatars_already_frozen(settings_test: Settin
     assert image_gen.calls == 0
 
 
-async def test_pipeline_run_with_show_id_loads_frozen_cast(pg_required: Settings) -> None:
+async def test_pipeline_run_with_show_id_loads_frozen_cast(
+    pg_required: Settings, shows_cleanup: list[str]
+) -> None:
     # Unlike the round-trip tests above, this runs the *full* graph, which
     # means critic.py really fetches each character's image_uri from storage
     # (for the vision-QA reference image) -- fake, never-stored URI strings
     # would 404/KeyError there. Seed real bytes into the same StubStorage the
     # pipeline uses, matching test_wp6_critic.py's _seeded_state pattern.
+    show_id = f"frozen-cast-{uuid.uuid4()}"
+    shows_cleanup.append(show_id)
     storage = StubStorage()
     bob_uri = await storage.put(
-        key="shows/frozen-cast/char_Bob.png", data=b"BOB", content_type="image/png"
+        key=f"shows/{show_id}/char_Bob.png", data=b"BOB", content_type="image/png"
     )
     miko_uri = await storage.put(
-        key="shows/frozen-cast/char_Miko.png", data=b"MIKO", content_type="image/png"
+        key=f"shows/{show_id}/char_Miko.png", data=b"MIKO", content_type="image/png"
     )
     style = _style(with_avatars=True).model_copy(
         update={
@@ -182,7 +197,7 @@ async def test_pipeline_run_with_show_id_loads_frozen_cast(pg_required: Settings
             ]
         }
     )
-    await db.save_show(pg_required.db_url, show_id="frozen-cast", name="Frozen Cast", style=style)
+    await db.save_show(pg_required.db_url, show_id=show_id, name="Frozen Cast", style=style)
 
     pipeline = Pipeline(settings=pg_required, ports=_ports(storage=storage))
     result = await pipeline.run(
@@ -193,10 +208,10 @@ async def test_pipeline_run_with_show_id_loads_frozen_cast(pg_required: Settings
         # Postgres pg_required points at, whose asset URIs this run's fresh
         # in-memory StubStorage never populated (KeyError on storage.get).
         project_id=f"show-episode-{uuid.uuid4()}",
-        show_id="frozen-cast",
+        show_id=show_id,
     )
 
-    assert result.show_id == "frozen-cast"
+    assert result.show_id == show_id
     assert result.style is not None
     assert {c.name for c in result.style.characters} == {"Bob", "Miko"}
     assert result.status == ProjectStatus.REVIEW

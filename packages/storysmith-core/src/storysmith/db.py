@@ -207,6 +207,19 @@ async def load_show(db_url: str, *, show_id: str) -> ShowRow | None:
         return result.scalar_one_or_none()
 
 
+async def delete_show(db_url: str, *, show_id: str) -> None:
+    """Test-only cleanup: GET /shows / apps/ui's show picker lists every row
+    in this table, so a test writing a show directly (not through the real
+    UI) must delete it afterward or it clutters that picker indefinitely --
+    confirmed live: 17 of 19 rows in the real dev Postgres were test
+    artifacts, only 2 were shows a user actually created."""
+    engine = _get_engine(db_url)
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        await session.execute(delete(ShowRow).where(ShowRow.show_id == show_id))
+        await session.commit()
+
+
 async def list_shows(db_url: str) -> list[ShowRow]:
     engine = _get_engine(db_url)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
