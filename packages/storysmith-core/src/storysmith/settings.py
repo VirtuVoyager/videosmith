@@ -34,11 +34,18 @@ class Settings(BaseSettings):
     # as a rate-limit escape hatch from Groq's free-tier 8000 TPM cap -- see
     # llm_replicate.py's docstring. Same SS_REPLICATE_API_TOKEN as the
     # image/video/music/TTS adapters, metered pay-as-you-go (no TPM cap).
-    # SPEC-GAP: no vision-capable Replicate model wired in -- vision tier
-    # falls back to the same text-only model; Critic's keyframe QA runs
-    # blind under this provider (see llm_replicate.py).
+    # Both tiers still resolve to the same text-only model, which is correct
+    # now: the actual vision step (captioning each image) is a separate
+    # sub-model below, not model_tier="vision" itself -- see
+    # llm_replicate.py's docstring for the two-stage pipeline.
     replicate_model_standard: str = "openai/gpt-oss-120b"
     replicate_model_vision: str = "openai/gpt-oss-120b"
+    # Real single-image vision model, confirmed live against this project's
+    # actual character art (correctly identified species/clothing/accessories).
+    # SPEC-GAP: its input schema (`media`/`prompt`/`max_new_tokens`) is
+    # specific to this model -- swapping this needs a matching change to
+    # llm_replicate.py's _caption_one_image, not just a settings edit.
+    replicate_vision_caption_model: str = "lucataco/qwen2-vl-7b-instruct"
     azure_openai_endpoint: str = ""
     azure_openai_api_key: str = ""
     azure_openai_deployment_standard: str = ""
