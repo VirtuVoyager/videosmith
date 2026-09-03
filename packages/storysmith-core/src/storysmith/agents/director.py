@@ -110,19 +110,17 @@ def _significant_words(text: str) -> set[str]:
     }
 
 
-def _character_restatement_violations(
-    scene_index: int, prompt: str, characters: list[CharacterRef]
-) -> list[str]:
-    """A prompt is self-contained (§2.2) only if every character it names is
-    also visually described there -- an image/video model has no memory of
-    what "Crocky" looked like in an earlier scene, only what's in *this*
-    prompt. Checked as significant-word overlap against the character's own
-    description (same technique/threshold philosophy as the art-style and
-    layout-overlap checks above), not exact substring matching, so
-    paraphrasing the description still passes."""
-    violations: list[str] = []
+def _missing_character_descriptions(
+    prompt: str, characters: list[CharacterRef]
+) -> list[CharacterRef]:
+    """Characters `prompt` names without enough of their own description
+    words also present -- checked as significant-word overlap against the
+    character's own description (same technique/threshold philosophy as the
+    art-style and layout-overlap checks above), not exact substring
+    matching, so paraphrasing the description still counts as present."""
     prompt_lower = prompt.lower()
     prompt_words = _significant_words(prompt)
+    missing = []
     for character in characters:
         if character.name.lower() not in prompt_lower:
             continue
@@ -131,13 +129,65 @@ def _character_restatement_violations(
             continue
         overlap = desc_words & prompt_words
         if len(overlap) / len(desc_words) < _CHARACTER_DESCRIPTION_MIN_OVERLAP:
-            violations.append(
-                f"scene {scene_index} mentions {character.name} by name but doesn't restate "
-                "enough of their visual description -- image/video models have no memory of "
-                "earlier scenes, so every prompt that names a character must fully re-describe "
-                "their appearance (not just say 'same as before' or reuse only their name)"
-            )
+            missing.append(character)
+    return missing
+
+
+def _character_restatement_violations(
+    scene_index: int, prompt: str, characters: list[CharacterRef]
+) -> list[str]:
+    """A prompt is self-contained (§2.2) only if every character it names is
+    also visually described there -- an image/video model has no memory of
+    what "Crocky" looked like in an earlier scene, only what's in *this*
+    prompt."""
+    violations: list[str] = []
+    for character in _missing_character_descriptions(prompt, characters):
+        # Confirmed live: stating the rule abstractly ("fully re-describe
+        # their appearance") wasn't enough for a raw-completion model
+        # (Replicate) to reliably comply on every scene across a corrective
+        # round -- two consecutive live runs still failed validation
+        # afterward. Embedding the character's actual description text
+        # gives the corrective round something concrete to insert/paraphrase
+        # instead of an abstract instruction to reconstruct from memory.
+        # There's also a deterministic patch as a second line of defense --
+        # see _patch_missing_character_restatements below -- since even this
+        # improved wording isn't guaranteed to land on every scene.
+        violations.append(
+            f"scene {scene_index} mentions {character.name} by name but doesn't restate "
+            "enough of their visual description -- image/video models have no memory of "
+            "earlier scenes, so every prompt that names a character must fully re-describe "
+            f"their appearance. {character.name}'s full description is: "
+            f"{character.description!r}. Copy this (or a close paraphrase covering the same "
+            f"details) directly into scene {scene_index}'s prompt -- do not just say 'same as "
+            "before' or reuse only their name."
+        )
     return violations
+
+
+def _patch_missing_character_restatements(
+    manifest: SceneManifest, style: StyleContract
+) -> SceneManifest:
+    """Deterministic fallback for when the LLM still hasn't fully restated a
+    named character's description after the corrective round -- confirmed
+    live, twice in a row: a raw-completion model (Replicate) reliably enough
+    fails to comply on every scene that spending a second paid LLM
+    round-trip and hoping isn't good enough. Appends the missing
+    description directly via string concatenation instead, guaranteeing the
+    self-containment property with no further API calls and no chance of
+    crashing the run over it. Only fixes *this* violation type -- an i2v
+    scene with an empty scene_image_prompt, a wrong scene count, etc. are
+    untouched and still raise if the corrective round didn't resolve them."""
+    patched_scenes = []
+    for scene in manifest.scenes:
+        field = "scene_image_prompt" if scene.gen_mode == SceneGenMode.I2V else "video_prompt"
+        current = getattr(scene, field) or ""
+        missing = _missing_character_descriptions(current, style.characters)
+        if not missing:
+            patched_scenes.append(scene)
+            continue
+        addition = " ".join(f"{c.name}: {c.description}." for c in missing)
+        patched_scenes.append(scene.model_copy(update={field: f"{current} {addition}".strip()}))
+    return manifest.model_copy(update={"scenes": patched_scenes})
 
 
 def _scene_violations(
@@ -311,10 +361,14 @@ async def run(state: VideoProject, *, ports: PortBundle, settings: Settings) -> 
         )
         violations = _validation_violations(manifest, style)
         if violations:
-            raise LLMStructuredOutputError(
-                "Director's SceneManifest still violates constraints after the corrective "
-                "round: " + "; ".join(violations)
-            )
+            patched = _patch_missing_character_restatements(manifest, style)
+            remaining = _validation_violations(patched, style)
+            if remaining:
+                raise LLMStructuredOutputError(
+                    "Director's SceneManifest still violates constraints after the corrective "
+                    "round and a deterministic character-restatement patch: " + "; ".join(remaining)
+                )
+            manifest = patched
 
     return {
         "manifest": manifest,
