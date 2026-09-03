@@ -279,7 +279,10 @@ stills-first scene composition, [Amendment 02](HANDOFF_SPEC_AMENDMENT_02_show_ch
 added user-authored show casts and multi-character dialogue,
 [Amendment 03](HANDOFF_SPEC_AMENDMENT_03_reference_conditioned_stills.md)
 conditions scene stills on the frozen character reference sheet instead of
-text alone, fixing visible character drift scene to scene).
+text alone, fixing visible character drift scene to scene,
+[Amendment 04](HANDOFF_SPEC_AMENDMENT_04_qa_provider_resilience.md) adds
+`QAVerdict.INCONCLUSIVE` so a provider outage during Critic's QA stage no
+longer crashes the run and discards every already-paid-for asset).
 
 ## License
 

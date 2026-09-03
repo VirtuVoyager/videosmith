@@ -12,12 +12,18 @@ import {
 import { TokenGate } from "../../TokenGate";
 
 function VerdictBadge({ verdict }: { verdict: string }) {
+  // Amendment 04: "inconclusive" means QA itself couldn't run (a provider
+  // error, not a content concern) -- distinct gray so it doesn't read as an
+  // actual flagged issue like "human_review" (red) while still standing out
+  // from a real "pass".
   const color =
     verdict === "pass"
       ? "bg-green-100 text-green-800"
       : verdict === "retry"
         ? "bg-amber-100 text-amber-800"
-        : "bg-red-100 text-red-800";
+        : verdict === "inconclusive"
+          ? "bg-gray-200 text-gray-700"
+          : "bg-red-100 text-red-800";
   return <span className={`rounded-full px-2 py-1 text-xs font-medium ${color}`}>{verdict}</span>;
 }
 

@@ -125,6 +125,17 @@ class QAVerdict(StrEnum):
     PASS = "pass"
     RETRY = "retry"
     HUMAN_REVIEW = "human_review"
+    # Amendment 04: QA itself couldn't run (a provider outage/rate-limit/
+    # low-credit error during Critic's own vision or transcription calls) --
+    # deliberately distinct from HUMAN_REVIEW, which means a real content
+    # concern was found and auto-assembly should stop. An INCONCLUSIVE scene
+    # was never actually judged, so there's no content reason to withhold
+    # it: the graph router treats it like PASS (falls through to editor by
+    # default, same as PASS -- see graph/build.py::_critic_router), so
+    # already-generated, already-paid-for assets still become a final video
+    # instead of a total loss, with review_gate flagging which scenes
+    # weren't really checked so a human knows to double-check them.
+    INCONCLUSIVE = "inconclusive"
 
 
 class FailureLayer(StrEnum):

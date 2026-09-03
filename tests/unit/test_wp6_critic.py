@@ -311,3 +311,72 @@ async def test_safety_flag_bypasses_retry_ceiling_on_first_attempt(settings_test
     result = await critic.run(state, ports=_ports(llm, storage), settings=settings_test)
 
     assert _scene_report(result["qa_reports"]).verdict == QAVerdict.HUMAN_REVIEW
+
+
+class _RaisingLLM:
+    """Simulates a provider outage (e.g. Replicate out of credit, HTTP 429)
+    happening mid-QA-call."""
+
+    def __init__(self, exc: Exception) -> None:
+        self._exc = exc
+        self.calls = 0
+
+    async def complete_structured(self, **kwargs: Any) -> tuple[BaseModel, float]:
+        self.calls += 1
+        raise self._exc
+
+
+async def test_regression_scene_qa_provider_error_yields_inconclusive_not_crash(
+    settings_test: Settings,
+) -> None:
+    """Confirmed live: a real run ran out of Replicate credit mid-QA and the
+    unhandled exception crashed the whole pipeline even though every scene
+    had already been generated (real money already spent) -- total loss, no
+    final_video. The vision-LLM call failing must degrade to an INCONCLUSIVE
+    verdict for that scene instead of propagating and losing everything
+    already paid for."""
+    storage = StubStorage()
+    state = await _seeded_state(storage)
+    llm = _RaisingLLM(RuntimeError("HTTP 429 from Replicate: rate limited, low credit"))
+
+    result = await critic.run(state, ports=_ports(llm, storage), settings=settings_test)
+
+    scene_report = _scene_report(result["qa_reports"])
+    assert scene_report.verdict == QAVerdict.INCONCLUSIVE
+    assert "429" in scene_report.critique
+    # audio QA still ran independently -- one scene's outage doesn't block it
+    assert _audio_report(result["qa_reports"]).verdict == QAVerdict.PASS
+
+
+async def test_regression_audio_qa_provider_error_yields_inconclusive_not_crash(
+    settings_test: Settings,
+) -> None:
+    """Same failure mode as above, but the outage hits transcription during
+    audio QA instead of the per-scene vision call."""
+    storage = StubStorage()
+    state = await _seeded_state(storage)
+    llm = _ScriptedLLM(_qa_report(scores=_PASSING_SCORES))
+
+    class _RaisingTranscribe:
+        async def transcribe(self, **kwargs: Any) -> tuple[list[dict[str, Any]], float]:
+            raise RuntimeError("HTTP 429 from Replicate: rate limited, low credit")
+
+    ports = PortBundle(
+        llm=llm,
+        image_gen=StubImageGen(),
+        video_gen=StubVideoGen(),
+        music_gen=StubMusicGen(),
+        tts=StubTTS(),
+        transcribe=_RaisingTranscribe(),
+        storage=storage,
+        publish=StubPublish(),
+        notify=StubNotify(),
+    )
+
+    result = await critic.run(state, ports=ports, settings=settings_test)
+
+    # scene QA still ran independently -- audio's outage doesn't block it
+    assert _scene_report(result["qa_reports"]).verdict == QAVerdict.PASS
+    audio_report = _audio_report(result["qa_reports"])
+    assert audio_report.verdict == QAVerdict.INCONCLUSIVE
+    assert "429" in audio_report.critique

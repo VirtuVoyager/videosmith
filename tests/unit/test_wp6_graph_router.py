@@ -45,3 +45,16 @@ def test_router_human_review_takes_priority_over_retry() -> None:
 def test_router_scene_human_review_takes_priority_too() -> None:
     state = _state([_report(0, QAVerdict.HUMAN_REVIEW), _report(1, QAVerdict.PASS)])
     assert _critic_router(state) == ["review_gate"]
+
+
+def test_router_inconclusive_goes_to_editor_like_pass() -> None:
+    # Amendment 04: INCONCLUSIVE means QA itself couldn't run (a provider
+    # error), not a content problem -- it must fall through to editor the
+    # same way an all-PASS state does, not trigger a retry or human review.
+    state = _state([_report(0, QAVerdict.INCONCLUSIVE), _report(None, QAVerdict.INCONCLUSIVE)])
+    assert _critic_router(state) == ["editor"]
+
+
+def test_router_inconclusive_scene_with_passing_audio_goes_to_editor() -> None:
+    state = _state([_report(0, QAVerdict.INCONCLUSIVE), _report(None, QAVerdict.PASS)])
+    assert _critic_router(state) == ["editor"]

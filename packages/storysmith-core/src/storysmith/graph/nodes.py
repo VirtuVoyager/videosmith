@@ -143,13 +143,29 @@ async def review_gate(
     else:
         headline = f'"{title}" passed QA, ready for review'
 
+    # Amendment 04: an INCONCLUSIVE verdict means QA itself couldn't run for
+    # that scene/audio track (provider outage, not a content problem) -- the
+    # router still let it through to editor like a PASS, so it may well be
+    # sitting in the assembled final video unchecked. Surface that separately
+    # from `headline` so a human reviewer knows exactly what was never really
+    # judged, without conflating it with an actual content escalation above.
+    inconclusive = [r for r in state.qa_reports if r.verdict == QAVerdict.INCONCLUSIVE]
+    inconclusive_line = ""
+    if inconclusive:
+        unchecked = ", ".join(
+            "audio" if r.scene_index is None else f"scene {r.scene_index}" for r in inconclusive
+        )
+        inconclusive_line = (
+            f"\nNOT actually QA-checked (provider error) -- verify manually: {unchecked}"
+        )
+
     final_video = _latest_final_video(state.assets)
     video_line = ""
     if final_video is not None:
         presigned = await ports.storage.presign(uri=final_video.uri)
         video_line = f"\nVideo: {presigned}"
 
-    text = f"{headline}\nCost so far: ${state.total_cost:.2f}{video_line}"
+    text = f"{headline}{inconclusive_line}\nCost so far: ${state.total_cost:.2f}{video_line}"
     review_link = f"{settings.console_base_url}/p/{state.project_id}"
     await ports.notify.send(text=text, link=review_link)
     return {"status": ProjectStatus.REVIEW}

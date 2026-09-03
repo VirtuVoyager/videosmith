@@ -49,6 +49,7 @@ markers = [
     "amendment01: HANDOFF_SPEC_AMENDMENT_01 start-frame conditioned scene generation",
     "amendment02: Amendment 02 user-authored character library + multi-character dialogue",
     "amendment03: Amendment 03 image-conditioned scene stills for character consistency",
+    "amendment04: Amendment 04 QAVerdict.INCONCLUSIVE -- QA-stage provider-error resilience",
     "slow: slow-running tests excluded from default CI run",
 ]
 addopts = "--ignore=tests/llm -p no:deepeval"
