@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import io
 import uuid
 from typing import Any
 
 import pytest
+from PIL import Image
 from pydantic import BaseModel
 from storysmith import db
 from storysmith.agents import creative_director
@@ -41,6 +43,16 @@ class _CountingImageGen(StubImageGen):
     async def generate(self, **kwargs: Any) -> tuple[bytes, float]:
         self.calls += 1
         return await super().generate(**kwargs)
+
+
+def _png_bytes(*, color: str) -> bytes:
+    """A real, tiny, valid PNG -- scene_stills.py's reference-image
+    conditioning (Amendment 03) actually opens character avatar bytes with
+    Pillow now, so a placeholder string like b"BOB" fails with
+    UnidentifiedImageError where a fake-but-parseable URI used to be enough."""
+    buf = io.BytesIO()
+    Image.new("RGB", (32, 32), color).save(buf, format="PNG")
+    return buf.getvalue()
 
 
 def _style(*, with_avatars: bool) -> StyleContract:
@@ -184,10 +196,12 @@ async def test_pipeline_run_with_show_id_loads_frozen_cast(
     shows_cleanup.append(show_id)
     storage = StubStorage()
     bob_uri = await storage.put(
-        key=f"shows/{show_id}/char_Bob.png", data=b"BOB", content_type="image/png"
+        key=f"shows/{show_id}/char_Bob.png",
+        data=_png_bytes(color="orange"),
+        content_type="image/png",
     )
     miko_uri = await storage.put(
-        key=f"shows/{show_id}/char_Miko.png", data=b"MIKO", content_type="image/png"
+        key=f"shows/{show_id}/char_Miko.png", data=_png_bytes(color="tan"), content_type="image/png"
     )
     style = _style(with_avatars=True).model_copy(
         update={

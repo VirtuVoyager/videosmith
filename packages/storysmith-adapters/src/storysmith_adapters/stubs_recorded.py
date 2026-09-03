@@ -191,7 +191,10 @@ class RecordedImageGen:
     def __init__(self, fixtures: RecordedFixtures) -> None:
         self._stills = fixtures._scene_stills
 
-    async def generate(self, *, prompt: str, aspect_ratio: str) -> tuple[bytes, float]:
+    async def generate(
+        self, *, prompt: str, aspect_ratio: str, reference_image: bytes | None = None
+    ) -> tuple[bytes, float]:
+        del reference_image  # replaying real recorded bytes either way
         return self._stills.next(), STUB_COST_USD
 
 

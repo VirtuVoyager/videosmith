@@ -79,15 +79,12 @@ class Settings(BaseSettings):
     # geometry-light (threaded into the director prompt, not enforced in
     # code -- the LLM still picks per-scene, this is just its starting bias).
     default_scene_gen_mode: str = "i2v"  # i2v | t2v
-    # SPEC-GAP: flux-kontext-pro supports image-conditioned generation (the
-    # capability §6 of the amendment gates i2v-with-character-identity on),
-    # but wiring a second image adapter/port to actually use that
-    # conditioning is deferred -- scene_stills currently reuses `image_model`
-    # (flux-schnell, text-only) via the existing ImageGenPort, folding
-    # character appearance into the prompt text instead (the amendment's own
-    # documented fallback for text-only image adapters). This setting is
-    # accepted now so the config surface matches the amendment; unused until
-    # that adapter work lands.
+    # Amendment 03: scene_stills.py conditions each scene's still on the
+    # show's frozen character reference sheet(s) via this image-editing
+    # model (input_image + text edit instruction), instead of pure
+    # text-to-image -- confirmed live that independent text-only generation
+    # renders a visibly different-looking character almost every scene,
+    # since a stateless diffusion model has no memory between calls.
     scene_image_model: str = "black-forest-labs/flux-kontext-pro"
 
     # --- Storage ---

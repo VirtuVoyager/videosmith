@@ -217,7 +217,7 @@ cd apps/ui && npm run gen-api-types
 | `SS_TTS_VOICE` | no | `af_bella` | Kokoro TTS voice id |
 | `SS_TTS_VOICE_HI` | no | — | TTS voice id used when `StyleContract.language` is `hi`/`hi-en` |
 | `SS_DEFAULT_SCENE_GEN_MODE` | no | `i2v` | Director's default per-scene `gen_mode` (`i2v` \| `t2v`) when unsure, see Amendment 01 |
-| `SS_SCENE_IMAGE_MODEL` | no | `black-forest-labs/flux-kontext-pro` | Image-conditioning-capable model id, reserved for a future adapter -- `scene_stills` currently reuses `SS_IMAGE_MODEL` (text-only), see settings.py |
+| `SS_SCENE_IMAGE_MODEL` | no | `black-forest-labs/flux-kontext-pro` | Image-editing model `scene_stills` uses to condition each scene on the show's frozen character reference sheet(s), instead of pure text-to-image -- fixes visible character drift scene to scene (Amendment 03); falls back to `SS_IMAGE_MODEL` (text-only) if no reference exists yet |
 | `SS_STORAGE_BACKEND` | no | `local` | `local` \| `s3` \| `azure_blob` |
 | `SS_OUTPUT_DIR` | no | `./out` | Local storage root |
 | `SS_CONFIGS_DIR` | no | `./configs` | Repo-root configs/ (style presets, safety rules, rubrics) |
@@ -276,7 +276,10 @@ Built spec-first: [HANDOFF_SPEC.md](HANDOFF_SPEC.md) is the frozen original
 design, with changes layered as numbered amendments
 ([Amendment 01](HANDOFF_SPEC_AMENDMENT_01_scene_composition.md) added
 stills-first scene composition, [Amendment 02](HANDOFF_SPEC_AMENDMENT_02_show_character_library.md)
-added user-authored show casts and multi-character dialogue).
+added user-authored show casts and multi-character dialogue,
+[Amendment 03](HANDOFF_SPEC_AMENDMENT_03_reference_conditioned_stills.md)
+conditions scene stills on the frozen character reference sheet instead of
+text alone, fixing visible character drift scene to scene).
 
 ## License
 
