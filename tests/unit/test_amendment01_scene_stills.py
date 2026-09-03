@@ -78,7 +78,9 @@ class _CountingImageGen:
         self.calls = 0
         self.prompts: list[str] = []
 
-    async def generate(self, *, prompt: str, aspect_ratio: str) -> tuple[bytes, float]:
+    async def generate(
+        self, *, prompt: str, aspect_ratio: str, reference_image: bytes | None = None
+    ) -> tuple[bytes, float]:
         self.calls += 1
         self.prompts.append(prompt)
         return b"STILL_BYTES", 0.003
@@ -275,7 +277,9 @@ async def test_video_prompt_motion_only_flags_layout_overlap(settings_test: Sett
 
 
 class _RejectingImageGen:
-    async def generate(self, *, prompt: str, aspect_ratio: str) -> tuple[bytes, float]:
+    async def generate(
+        self, *, prompt: str, aspect_ratio: str, reference_image: bytes | None = None
+    ) -> tuple[bytes, float]:
         raise ContentRejectedError("provider rejected prompt: unit-test NSFW")
 
 

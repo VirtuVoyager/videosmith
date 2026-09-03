@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from collections.abc import Iterator
 
 import pytest
@@ -36,57 +37,68 @@ def _auth(token: str = "test-token") -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-_SHOW_PAYLOAD = {
-    "show_id": "bob-and-miko",
-    "name": "Bob & Miko",
-    "art_style": "soft 2D cutout animation",
-    "characters": [
-        {
-            "name": "Bob",
-            "description": "an orange cat with a chipped ear",
-            "personality": "sarcastic and lazy",
-            "voice_id": "am_adam",
-        },
-        {
-            "name": "Miko",
-            "description": "a golden retriever with a red bandana",
-            "personality": "earnest and easily excited",
-            "voice_id": "af_bella",
-        },
-    ],
-}
+# NOTE: never hardcode a real show's name/id here (e.g. "bob-and-miko") --
+# these tests hit real Postgres via pg_required, and db.save_show is a
+# full-overwrite upsert, so a shared literal would clobber that show's real
+# data on every test run. _show_payload() takes a fresh id per test instead.
+def _show_payload(show_id: str) -> dict[str, object]:
+    return {
+        "show_id": show_id,
+        "name": "Bob & Miko",
+        "art_style": "soft 2D cutout animation",
+        "characters": [
+            {
+                "name": "Bob",
+                "description": "an orange cat with a chipped ear",
+                "personality": "sarcastic and lazy",
+                "voice_id": "am_adam",
+            },
+            {
+                "name": "Miko",
+                "description": "a golden retriever with a red bandana",
+                "personality": "earnest and easily excited",
+                "voice_id": "af_bella",
+            },
+        ],
+    }
 
 
 def test_create_show_requires_auth(client: TestClient) -> None:
-    response = client.post("/shows", json=_SHOW_PAYLOAD)
-    assert response.status_code == 401
+    response = client.post("/shows", json=_show_payload("unauthed-show"))
+    assert response.status_code == 401  # rejected before any write happens
 
 
-def test_create_show_generates_and_freezes_avatars(client: TestClient) -> None:
-    response = client.post("/shows", json=_SHOW_PAYLOAD, headers=_auth())
+def test_create_show_generates_and_freezes_avatars(
+    client: TestClient, shows_cleanup: list[str]
+) -> None:
+    show_id = f"show-{uuid.uuid4()}"
+    shows_cleanup.append(show_id)
+    response = client.post("/shows", json=_show_payload(show_id), headers=_auth())
 
     assert response.status_code == 200
     body = response.json()
-    assert body["show_id"] == "bob-and-miko"
+    assert body["show_id"] == show_id
     assert {c["name"] for c in body["characters"]} == {"Bob", "Miko"}
     for character in body["characters"]:
         assert character["image_asset_uri"]  # an avatar was actually generated
 
 
 def test_create_show_rejects_empty_cast(client: TestClient) -> None:
-    payload = {**_SHOW_PAYLOAD, "show_id": "empty-cast", "characters": []}
+    payload = {**_show_payload("empty-cast"), "characters": []}
     response = client.post("/shows", json=payload, headers=_auth())
-    assert response.status_code == 422
+    assert response.status_code == 422  # rejected before any write happens
 
 
-def test_list_shows_includes_created_show(client: TestClient) -> None:
-    client.post("/shows", json=_SHOW_PAYLOAD, headers=_auth())
+def test_list_shows_includes_created_show(client: TestClient, shows_cleanup: list[str]) -> None:
+    show_id = f"show-{uuid.uuid4()}"
+    shows_cleanup.append(show_id)
+    client.post("/shows", json=_show_payload(show_id), headers=_auth())
 
     response = client.get("/shows", headers=_auth())
 
     assert response.status_code == 200
     ids = [s["show_id"] for s in response.json()]
-    assert "bob-and-miko" in ids
+    assert show_id in ids
 
 
 def test_trigger_run_with_unknown_show_id_404s_synchronously(client: TestClient) -> None:
@@ -98,13 +110,17 @@ def test_trigger_run_with_unknown_show_id_404s_synchronously(client: TestClient)
     assert response.status_code == 404
 
 
-def test_trigger_run_with_known_show_id_returns_project_id(client: TestClient) -> None:
-    create = client.post("/shows", json=_SHOW_PAYLOAD, headers=_auth())
+def test_trigger_run_with_known_show_id_returns_project_id(
+    client: TestClient, shows_cleanup: list[str]
+) -> None:
+    show_id = f"show-{uuid.uuid4()}"
+    shows_cleanup.append(show_id)
+    create = client.post("/shows", json=_show_payload(show_id), headers=_auth())
     assert create.status_code == 200
 
     response = client.post(
         "/runs",
-        json={"brief": "a topic", "mode": "topical", "show_id": "bob-and-miko"},
+        json={"brief": "a topic", "mode": "topical", "show_id": show_id},
         headers=_auth(),
     )
 

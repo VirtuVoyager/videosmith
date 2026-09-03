@@ -207,9 +207,32 @@ async def run(state: VideoProject, *, ports: PortBundle, settings: Settings) -> 
                 )
             )
             continue
-        raw_report, cost = await _score_scene(
-            idx, asset, state=state, ports=ports, rubric=rubric, has_lesson=has_lesson
-        )
+        try:
+            raw_report, cost = await _score_scene(
+                idx, asset, state=state, ports=ports, rubric=rubric, has_lesson=has_lesson
+            )
+        except Exception as exc:  # noqa: BLE001 -- see INCONCLUSIVE's docstring in models.py
+            # Confirmed live: running out of Replicate credit mid-QA crashed
+            # the whole run even though every scene had already been
+            # generated (real money already spent) -- total loss, no
+            # final_video, nothing to show for it. A provider outage during
+            # QA is not a content problem, so it shouldn't be treated like
+            # one: INCONCLUSIVE still lets the run reach editor (the router
+            # treats it like PASS) instead of losing everything already paid
+            # for, while still telling review_gate this scene wasn't really
+            # checked.
+            reports.append(
+                QAReport(
+                    scene_index=idx,
+                    verdict=QAVerdict.INCONCLUSIVE,
+                    scores={},
+                    safety_flags=[],
+                    critique=(
+                        f"QA could not be completed for this scene due to a provider error: {exc}"
+                    ),
+                )
+            )
+            continue
         weighted = _weighted_score(rubric, raw_report.scores, has_lesson=has_lesson)
         if raw_report.safety_flags:
             verdict = QAVerdict.HUMAN_REVIEW  # never auto-retry safety issues (§6)
@@ -223,36 +246,50 @@ async def run(state: VideoProject, *, ports: PortBundle, settings: Settings) -> 
         reports.append(raw_report.model_copy(update={"scene_index": idx, "verdict": verdict}))
         cost_entries.append(cost)
 
-    transcript, expected, audio_costs = await _score_audio(state, ports=ports)
-    cost_entries.extend(audio_costs)
-    wer = word_error_rate(expected, transcript) if expected else 0.0
-    transcript_lower = transcript.lower()
-    audio_safety_flags = [term for term in base_safety_terms if term.lower() in transcript_lower]
-
-    if audio_safety_flags:
-        audio_verdict = QAVerdict.HUMAN_REVIEW
-    elif wer <= rubric.audio_wer_retry_threshold:
-        audio_verdict = QAVerdict.PASS
-    else:
-        retry_counts[_AUDIO_RETRY_KEY] = retry_counts.get(_AUDIO_RETRY_KEY, 0) + 1
-        audio_verdict = QAVerdict.RETRY
-        if retry_counts[_AUDIO_RETRY_KEY] >= rubric.audio_max_attempts_before_human_review:
-            audio_verdict = QAVerdict.HUMAN_REVIEW
-
-    reports.append(
-        QAReport(
-            scene_index=None,
-            verdict=audio_verdict,
-            scores={"audio_accuracy": max(0.0, 1.0 - wer)},
-            safety_flags=audio_safety_flags,
-            critique=(
-                ""
-                if audio_verdict == QAVerdict.PASS
-                else f"Audio word error rate {wer:.2f} exceeds threshold "
-                f"{rubric.audio_wer_retry_threshold}; regenerate narration/lyrics."
-            ),
+    try:
+        transcript, expected, audio_costs = await _score_audio(state, ports=ports)
+    except Exception as exc:  # noqa: BLE001 -- same rationale as the per-scene catch above
+        reports.append(
+            QAReport(
+                scene_index=None,
+                verdict=QAVerdict.INCONCLUSIVE,
+                scores={},
+                safety_flags=[],
+                critique=f"Audio QA could not be completed due to a provider error: {exc}",
+            )
         )
-    )
+    else:
+        cost_entries.extend(audio_costs)
+        wer = word_error_rate(expected, transcript) if expected else 0.0
+        transcript_lower = transcript.lower()
+        audio_safety_flags = [
+            term for term in base_safety_terms if term.lower() in transcript_lower
+        ]
+
+        if audio_safety_flags:
+            audio_verdict = QAVerdict.HUMAN_REVIEW
+        elif wer <= rubric.audio_wer_retry_threshold:
+            audio_verdict = QAVerdict.PASS
+        else:
+            retry_counts[_AUDIO_RETRY_KEY] = retry_counts.get(_AUDIO_RETRY_KEY, 0) + 1
+            audio_verdict = QAVerdict.RETRY
+            if retry_counts[_AUDIO_RETRY_KEY] >= rubric.audio_max_attempts_before_human_review:
+                audio_verdict = QAVerdict.HUMAN_REVIEW
+
+        reports.append(
+            QAReport(
+                scene_index=None,
+                verdict=audio_verdict,
+                scores={"audio_accuracy": max(0.0, 1.0 - wer)},
+                safety_flags=audio_safety_flags,
+                critique=(
+                    ""
+                    if audio_verdict == QAVerdict.PASS
+                    else f"Audio word error rate {wer:.2f} exceeds threshold "
+                    f"{rubric.audio_wer_retry_threshold}; regenerate narration/lyrics."
+                ),
+            )
+        )
 
     return {
         "qa_reports": reports,

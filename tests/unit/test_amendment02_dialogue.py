@@ -233,6 +233,65 @@ def test_i2v_prompt_fully_restating_character_appearance_is_not_flagged() -> Non
     assert not any("doesn't restate" in v for v in violations)
 
 
+def test_regression_deterministic_patch_fixes_missing_restatement_after_corrective_round() -> None:
+    """Real live finding: even with the improved corrective-round wording
+    above, a raw-completion model (Replicate) failed this exact check on
+    3+ scenes two runs in a row -- spending a second paid LLM call and
+    hoping isn't reliable enough. _patch_missing_character_restatements is
+    the deterministic second line of defense: guarantees the
+    self-containment property via string concatenation, no more API calls,
+    no chance of crashing the run over it."""
+    from storysmith.agents.director import (
+        _patch_missing_character_restatements,
+        _validation_violations,
+    )
+
+    style = _crocky_and_roachy()
+    bad_scenes = [
+        Scene(
+            index=0,
+            duration_s=6,
+            gen_mode=SceneGenMode.I2V,
+            scene_image_prompt=(
+                "Polished realistic 3D Disney-Pixar style CG animation. Crocky, a brown "
+                "cockroach anthropomorphized to stand and sit upright like a person, glossy "
+                "chitin exoskeleton, large expressive eyes, small round glasses, tweed vest "
+                "over a collared shirt, and Roachy, a reddish-brown cockroach anthropomorphized "
+                "to stand and sit upright like a person, glossy chitin exoskeleton, large "
+                "expressive eyes, a small bowtie, sit at a cafe table."
+            ),
+            video_prompt="Crocky and Roachy sip their coffee, camera remains static.",
+            narration="",
+        ),
+    ] + [
+        Scene(
+            index=i,
+            duration_s=6,
+            gen_mode=SceneGenMode.I2V,
+            # Exactly the real live failure: art style restated (so *that*
+            # check passes, isolating the one this test targets), but
+            # characters named with no restatement of their appearance.
+            scene_image_prompt=(
+                "Polished realistic 3D Disney-Pixar style CG animation. Same cafe view. "
+                "Crocky and Roachy chat at the table."
+            ),
+            video_prompt="Crocky and Roachy sip their coffee, camera remains static.",
+            narration="",
+        )
+        for i in range(1, 5)
+    ]
+    manifest = SceneManifest(
+        title="t", description="d", tags=[], total_duration_s=30.0, music_cues=[], scenes=bad_scenes
+    )
+    assert _validation_violations(manifest, style) != []  # sanity: really is broken first
+
+    patched = _patch_missing_character_restatements(manifest, style)
+
+    assert _validation_violations(patched, style) == []
+    # scene 0 (already fine) is untouched byte-for-byte
+    assert patched.scenes[0] == manifest.scenes[0]
+
+
 def test_build_audio_concat_cmd_single_clip() -> None:
     cmd = build_audio_concat_cmd([Path("a.mp3")], [1.0], 0.2, Path("out.wav"))
     filter_complex = cmd[cmd.index("-filter_complex") + 1]

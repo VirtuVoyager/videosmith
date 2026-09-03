@@ -22,7 +22,17 @@ class LLMPort(Protocol):
 
 
 class ImageGenPort(Protocol):
-    async def generate(self, *, prompt: str, aspect_ratio: str) -> tuple[bytes, float]: ...
+    async def generate(
+        self, *, prompt: str, aspect_ratio: str, reference_image: bytes | None = None
+    ) -> tuple[bytes, float]: ...
+
+    # reference_image (Amendment 03): image-conditioned generation (e.g.
+    # flux-kontext-pro) instead of pure text-to-image, to keep a character's
+    # appearance consistent across independently-generated scene stills --
+    # a stateless text-to-image model has no memory between calls, so
+    # naming/describing a character in text alone renders a different-
+    # looking character almost every time (confirmed live). None (the
+    # default) preserves today's pure text-to-image behavior unchanged.
 
 
 class VideoGenPort(Protocol):

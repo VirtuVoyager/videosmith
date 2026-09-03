@@ -132,7 +132,9 @@ async def test_recorded_sequence_raises_clearly_when_exhausted() -> None:
         await image_gen.generate(prompt="p", aspect_ratio="9:16")
 
 
-async def test_full_pipeline_run_against_recorded_fixtures(pg_required: Settings) -> None:
+async def test_full_pipeline_run_against_recorded_fixtures(
+    pg_required: Settings, shows_cleanup: list[str]
+) -> None:
     """The real payoff: a full graph run, zero network calls, using real
     style/script/media throughout (only Critic's verdicts are the StubLLM
     fallback's synthetic always-pass) -- proves recorded_port_bundle() is
@@ -148,6 +150,7 @@ async def test_full_pipeline_run_against_recorded_fixtures(pg_required: Settings
     # test follow-up; unique ids sidestep it here too.
     show_id = f"crocky-and-roachy-recorded-test-{uuid.uuid4()}"
     project_id = f"recorded-fixture-run-{uuid.uuid4()}"
+    shows_cleanup.append(show_id)
     await db.save_show(
         pg_required.db_url, show_id=show_id, name="Recorded Test", style=fixtures.style
     )

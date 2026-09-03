@@ -319,10 +319,18 @@ def _render_thumbnail(frame_path: Path, title: str, output_path: Path) -> None:
 
 
 def _latest_passing_scene_videos(state: VideoProject) -> list[tuple[int, AssetRef]]:
+    # Amendment 04: INCONCLUSIVE (QA itself failed on a provider error, not a
+    # content problem -- see QAVerdict's docstring in models.py) counts as
+    # passing here too. The router (graph/build.py::_critic_router) already
+    # treats INCONCLUSIVE like PASS by sending the project to editor instead
+    # of retry/human_review; if this filter didn't match that, an
+    # INCONCLUSIVE scene would silently vanish from the final cut even though
+    # the whole point of the verdict is to avoid losing already-paid-for
+    # assets.
     passing_indices = {
         r.scene_index
         for r in state.qa_reports
-        if r.scene_index is not None and r.verdict == QAVerdict.PASS
+        if r.scene_index is not None and r.verdict in (QAVerdict.PASS, QAVerdict.INCONCLUSIVE)
     }
     latest: dict[int, AssetRef] = {}
     for asset in state.assets:

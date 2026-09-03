@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 import respx
@@ -30,6 +32,7 @@ def settings_llm() -> Settings:
         replicate_api_token="tok",
         replicate_model_standard="openai/gpt-oss-120b",
         replicate_model_vision="openai/gpt-oss-120b",
+        replicate_vision_caption_model="lucataco/qwen2-vl-7b-instruct",
     )
 
 
@@ -134,10 +137,13 @@ async def test_repair_round_fails_twice_raises(settings_llm: Settings) -> None:
             await llm.complete_structured(system="sys", user="say hi", schema=_Greeting)
 
 
-async def test_vision_tier_falls_back_to_standard_model(settings_llm: Settings) -> None:
+async def test_vision_tier_with_no_images_skips_captioning(settings_llm: Settings) -> None:
     llm = ReplicateLLM(settings_llm)
     with respx.mock(base_url=_BASE) as mock:
-        route = mock.post("/models/openai/gpt-oss-120b/predictions").mock(
+        # No route registered for the caption model at all -- if
+        # complete_structured tried to call it anyway, respx would raise on
+        # the unmatched request, failing this test loudly.
+        mock.post("/models/openai/gpt-oss-120b/predictions").mock(
             return_value=httpx.Response(201, json={"id": "p7", "status": "starting"})
         )
         mock.get("/predictions/p7").mock(
@@ -147,8 +153,85 @@ async def test_vision_tier_falls_back_to_standard_model(settings_llm: Settings) 
             )
         )
 
-        await llm.complete_structured(
-            system="sys", user="describe", schema=_Greeting, model_tier="vision", images=[b"PNG"]
+        parsed, _ = await llm.complete_structured(
+            system="sys", user="describe", schema=_Greeting, model_tier="vision", images=None
         )
 
-        assert route.called
+        assert parsed == _Greeting(greeting="hi", count=1)
+
+
+async def test_vision_tier_captions_each_image_then_extracts_json(settings_llm: Settings) -> None:
+    """The real two-stage pipeline: each image is captioned independently
+    first (no Replicate raw-completion model takes several images in one
+    request), then those descriptions are folded into `user` as plain text
+    before the same text-only JSON-extraction call every other request uses."""
+    llm = ReplicateLLM(settings_llm)
+    with respx.mock(base_url=_BASE) as mock:
+        mock.post("/models/lucataco/qwen2-vl-7b-instruct/predictions").mock(
+            side_effect=[
+                httpx.Response(201, json={"id": "cap1", "status": "starting"}),
+                httpx.Response(201, json={"id": "cap2", "status": "starting"}),
+            ]
+        )
+        mock.get("/predictions/cap1").mock(
+            return_value=httpx.Response(
+                200, json={"id": "cap1", "status": "succeeded", "output": ["a red cube"]}
+            )
+        )
+        mock.get("/predictions/cap2").mock(
+            return_value=httpx.Response(
+                200, json={"id": "cap2", "status": "succeeded", "output": ["a blue sphere"]}
+            )
+        )
+        extract_route = mock.post("/models/openai/gpt-oss-120b/predictions").mock(
+            return_value=httpx.Response(201, json={"id": "p8", "status": "starting"})
+        )
+        mock.get("/predictions/p8").mock(
+            return_value=httpx.Response(
+                200,
+                json={"id": "p8", "status": "succeeded", "output": ['{"greeting":"hi","count":1}']},
+            )
+        )
+
+        parsed, _ = await llm.complete_structured(
+            system="sys",
+            user="describe the scene",
+            schema=_Greeting,
+            model_tier="vision",
+            images=[b"IMG1", b"IMG2"],
+        )
+
+        assert parsed == _Greeting(greeting="hi", count=1)
+        sent_prompt = json.loads(extract_route.calls.last.request.content)["input"]["prompt"]
+        assert "Image 1 description: a red cube" in sent_prompt
+        assert "Image 2 description: a blue sphere" in sent_prompt
+        assert "describe the scene" in sent_prompt  # original user text preserved
+
+
+async def test_vision_caption_failure_falls_back_to_placeholder_not_crash(
+    settings_llm: Settings,
+) -> None:
+    """One bad image (rejected, timed out, whatever) shouldn't sink the
+    whole QA call -- captioning failures degrade to a placeholder string
+    instead of propagating."""
+    llm = ReplicateLLM(settings_llm)
+    with respx.mock(base_url=_BASE) as mock:
+        mock.post("/models/lucataco/qwen2-vl-7b-instruct/predictions").mock(
+            return_value=httpx.Response(500, json={"detail": "internal error"})
+        )
+        mock.post("/models/openai/gpt-oss-120b/predictions").mock(
+            return_value=httpx.Response(201, json={"id": "p9", "status": "starting"})
+        )
+        mock.get("/predictions/p9").mock(
+            return_value=httpx.Response(
+                200,
+                json={"id": "p9", "status": "succeeded", "output": ['{"greeting":"hi","count":1}']},
+            )
+        )
+
+        parsed, cost = await llm.complete_structured(
+            system="sys", user="describe", schema=_Greeting, model_tier="vision", images=[b"IMG"]
+        )
+
+        assert parsed == _Greeting(greeting="hi", count=1)  # didn't crash
+        assert cost == pytest.approx(0.0)  # failed caption contributes no cost

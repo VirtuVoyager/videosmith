@@ -199,7 +199,8 @@ cd apps/ui && npm run gen-api-types
 | `SS_GROQ_MODEL_STANDARD` | no | `openai/gpt-oss-120b` | Standard-tier Groq model id -- Groq's Llama lineup (this project's original default) was fully removed at some point; verify current availability via `GET /openai/v1/models` before relying on this. This account's free tier also caps every current chat model at 8000 tokens/minute -- smaller than a single Director request, confirmed live -- see `SS_LLM_PROVIDER=replicate` below |
 | `SS_GROQ_MODEL_VISION` | no | `openai/gpt-oss-120b` | Vision-tier Groq model id -- no vision-capable model was found in Groq's lineup as of writing; use `SS_LLM_PROVIDER=anthropic` if Critic's vision calls need to stay reliable |
 | `SS_REPLICATE_MODEL_STANDARD` | no | `openai/gpt-oss-120b` | Standard-tier model id on Replicate (only if `SS_LLM_PROVIDER=replicate`) -- a raw text-completion model, no tool-calling/JSON mode; see `llm_replicate.py`. Metered pay-as-you-go on `SS_REPLICATE_API_TOKEN` below, with no TPM cap -- the practical fix for Groq's 8000 TPM ceiling above |
-| `SS_REPLICATE_MODEL_VISION` | no | `openai/gpt-oss-120b` | Vision-tier model id on Replicate -- SPEC-GAP: no vision-capable model is wired in, falls back to the same text-only model, so Critic's keyframe QA runs blind under this provider; use `SS_LLM_PROVIDER=anthropic` if that needs to stay reliable |
+| `SS_REPLICATE_MODEL_VISION` | no | `openai/gpt-oss-120b` | Vision-tier model id on Replicate -- still a text-only model; the actual vision step is `SS_REPLICATE_VISION_CAPTION_MODEL` below, not this one |
+| `SS_REPLICATE_VISION_CAPTION_MODEL` | no | `lucataco/qwen2-vl-7b-instruct` | Real single-image vision model, captions each keyframe/character-reference image before Critic's text-only structured-JSON reasoning call runs over those descriptions (no Replicate raw-completion model takes several images in one request) -- confirmed live against this project's actual character art; see `llm_replicate.py` |
 | `SS_AZURE_OPENAI_ENDPOINT` | yes (if azure) | — | Azure OpenAI resource endpoint |
 | `SS_AZURE_OPENAI_API_KEY` | yes (if azure) | — | Azure OpenAI API key |
 | `SS_AZURE_OPENAI_DEPLOYMENT_STANDARD` | yes (if azure) | — | Standard-tier deployment name |
@@ -216,7 +217,7 @@ cd apps/ui && npm run gen-api-types
 | `SS_TTS_VOICE` | no | `af_bella` | Kokoro TTS voice id |
 | `SS_TTS_VOICE_HI` | no | — | TTS voice id used when `StyleContract.language` is `hi`/`hi-en` |
 | `SS_DEFAULT_SCENE_GEN_MODE` | no | `i2v` | Director's default per-scene `gen_mode` (`i2v` \| `t2v`) when unsure, see Amendment 01 |
-| `SS_SCENE_IMAGE_MODEL` | no | `black-forest-labs/flux-kontext-pro` | Image-conditioning-capable model id, reserved for a future adapter -- `scene_stills` currently reuses `SS_IMAGE_MODEL` (text-only), see settings.py |
+| `SS_SCENE_IMAGE_MODEL` | no | `black-forest-labs/flux-kontext-pro` | Image-editing model `scene_stills` uses to condition each scene on the show's frozen character reference sheet(s), instead of pure text-to-image -- fixes visible character drift scene to scene (Amendment 03); falls back to `SS_IMAGE_MODEL` (text-only) if no reference exists yet |
 | `SS_STORAGE_BACKEND` | no | `local` | `local` \| `s3` \| `azure_blob` |
 | `SS_OUTPUT_DIR` | no | `./out` | Local storage root |
 | `SS_CONFIGS_DIR` | no | `./configs` | Repo-root configs/ (style presets, safety rules, rubrics) |
@@ -275,7 +276,13 @@ Built spec-first: [HANDOFF_SPEC.md](HANDOFF_SPEC.md) is the frozen original
 design, with changes layered as numbered amendments
 ([Amendment 01](HANDOFF_SPEC_AMENDMENT_01_scene_composition.md) added
 stills-first scene composition, [Amendment 02](HANDOFF_SPEC_AMENDMENT_02_show_character_library.md)
-added user-authored show casts and multi-character dialogue).
+added user-authored show casts and multi-character dialogue,
+[Amendment 03](HANDOFF_SPEC_AMENDMENT_03_reference_conditioned_stills.md)
+conditions scene stills on the frozen character reference sheet instead of
+text alone, fixing visible character drift scene to scene,
+[Amendment 04](HANDOFF_SPEC_AMENDMENT_04_qa_provider_resilience.md) adds
+`QAVerdict.INCONCLUSIVE` so a provider outage during Critic's QA stage no
+longer crashes the run and discards every already-paid-for asset).
 
 ## License
 

@@ -205,7 +205,10 @@ class StubLLM:
 
 
 class StubImageGen:
-    async def generate(self, *, prompt: str, aspect_ratio: str) -> tuple[bytes, float]:
+    async def generate(
+        self, *, prompt: str, aspect_ratio: str, reference_image: bytes | None = None
+    ) -> tuple[bytes, float]:
+        del reference_image  # stub content is identical either way
         return b"STUB_IMAGE_BYTES", STUB_COST_USD
 
 
